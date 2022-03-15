@@ -1,4 +1,5 @@
-Software Heritage - Python module template
-==========================================
+Software Heritage - Datastore Scrubber
+======================================
 
-Python module template, used as skeleton to create new modules.
+Tools to periodically checks data integrity in swh-storage and swh-objstorage,
+reports errors, and (try to) fix them.

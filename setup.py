@@ -36,18 +36,15 @@ def parse_requirements(*names):
     return requirements
 
 
-# Edit this part to match your module, replace foo by its name
-# Full sample:
-#   https://forge.softwareheritage.org/diffusion/DCORE/browse/master/setup.py
 setup(
-    name="swh.foo",  # example: swh.loader.pypi
-    description="Software Heritage <Module's intent>",
+    name="swh.scrubber",  # example: swh.loader.pypi
+    description="Software Heritage Datastore Scrubber",
     long_description=long_description,
     long_description_content_type="text/x-rst",
     python_requires=">=3.7",
     author="Software Heritage developers",
     author_email="swh-devel@inria.fr",
-    url="https://forge.softwareheritage.org/diffusion/<module-git-code>",
+    url="https://forge.softwareheritage.org/diffusion/swh-scrubber",
     packages=find_packages(),  # packages's modules
     install_requires=parse_requirements(None, "swh"),
     tests_require=parse_requirements("test"),
@@ -57,7 +54,7 @@ setup(
     include_package_data=True,
     entry_points="""
         [swh.cli.subcommands]
-        foo=swh.foo.cli
+        scrubber=swh.scrubber.cli
     """,
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -69,7 +66,7 @@ setup(
     project_urls={
         "Bug Reports": "https://forge.softwareheritage.org/maniphest",
         "Funding": "https://www.softwareheritage.org/donate",
-        "Source": "https://forge.softwareheritage.org/source/swh-<module>",
-        "Documentation": "https://docs.softwareheritage.org/devel/swh-<module>/",
+        "Source": "https://forge.softwareheritage.org/source/swh-scrubber",
+        "Documentation": "https://docs.softwareheritage.org/devel/swh-scrubber/",
     },
 )
