@@ -1,2 +1,5 @@
 # Add here internal Software Heritage dependencies, one per line.
 swh.core[http] >= 0.3  # [http] is required by swh.core.pytest_plugin
+swh.model >= 5.0.0
+swh.storage >= 1.1.0
+swh.journal >= 0.9.0
