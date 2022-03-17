@@ -3,7 +3,6 @@
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
 
-import copy
 import tempfile
 from unittest.mock import MagicMock
 
@@ -13,24 +12,41 @@ import yaml
 from swh.scrubber.check_storage import storage_db
 from swh.scrubber.cli import scrubber_cli_group
 
-CLI_CONFIG = {
-    "storage": {
-        "cls": "postgresql",
-        "db": "<replaced at runtime>",
-        "objstorage": {"cls": "memory"},
-    },
-    "scrubber_db": {"cls": "local", "db": "<replaced at runtime>"},
-}
 
-
-def invoke(swh_storage, scrubber_db, args):
+def invoke(
+    scrubber_db,
+    args,
+    storage=None,
+    kafka_server=None,
+    kafka_prefix=None,
+    kafka_consumer_group=None,
+):
     runner = CliRunner()
 
-    config = copy.deepcopy(CLI_CONFIG)
-    with storage_db(swh_storage) as db:
-        config["storage"]["db"] = db.conn.dsn
+    config = {
+        "scrubber_db": {"cls": "local", "db": scrubber_db.conn.dsn},
+    }
+    if storage:
+        with storage_db(storage) as db:
+            config["storage"] = {
+                "cls": "postgresql",
+                "db": db.conn.dsn,
+                "objstorage": {"cls": "memory"},
+            }
 
-    config["scrubber_db"]["db"] = scrubber_db.conn.dsn
+    assert (
+        (kafka_server is None)
+        == (kafka_prefix is None)
+        == (kafka_consumer_group is None)
+    )
+    if kafka_server:
+        config["journal_client"] = dict(
+            cls="kafka",
+            brokers=kafka_server,
+            group_id=kafka_consumer_group,
+            prefix=kafka_prefix,
+            stop_on_eof=True,
+        )
 
     with tempfile.NamedTemporaryFile("a", suffix=".yml") as config_fd:
         yaml.dump(config, config_fd)
@@ -40,7 +56,7 @@ def invoke(swh_storage, scrubber_db, args):
     return result
 
 
-def test_check_storage(swh_storage, mocker, scrubber_db):
+def test_check_storage(mocker, scrubber_db, swh_storage):
     storage_checker = MagicMock()
     StorageChecker = mocker.patch(
         "swh.scrubber.check_storage.StorageChecker", return_value=storage_checker
@@ -49,7 +65,7 @@ def test_check_storage(swh_storage, mocker, scrubber_db):
         "swh.scrubber.get_scrubber_db", return_value=scrubber_db
     )
     result = invoke(
-        swh_storage, scrubber_db, ["check", "storage", "--object-type=snapshot"]
+        scrubber_db, ["check", "storage", "--object-type=snapshot"], storage=swh_storage
     )
     assert result.exit_code == 0, result.output
     assert result.output == ""
@@ -61,4 +77,37 @@ def test_check_storage(swh_storage, mocker, scrubber_db):
         object_type="snapshot",
         start_object="0" * 40,
         end_object="f" * 40,
+    )
+
+
+def test_check_journal(
+    mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
+):
+    journal_checker = MagicMock()
+    JournalChecker = mocker.patch(
+        "swh.scrubber.check_journal.JournalChecker", return_value=journal_checker
+    )
+    get_scrubber_db = mocker.patch(
+        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
+    )
+    result = invoke(
+        scrubber_db,
+        ["check", "journal"],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    get_scrubber_db.assert_called_once_with(cls="local", db=scrubber_db.conn.dsn)
+    JournalChecker.assert_called_once_with(
+        db=scrubber_db,
+        journal_client={
+            "brokers": kafka_server,
+            "cls": "kafka",
+            "group_id": kafka_consumer_group,
+            "prefix": kafka_prefix,
+            "stop_on_eof": True,
+        },
     )

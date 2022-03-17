@@ -4,6 +4,7 @@
 # See top-level LICENSE file for more information
 
 import os
+from typing import Optional
 
 import click
 
@@ -20,8 +21,41 @@ from swh.core.cli import swh as swh_cli_group
     help="Configuration file.",
 )
 @click.pass_context
-def scrubber_cli_group(ctx, config_file):
+def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
     """main command group of the datastore scrubber
+
+    Expected config format::
+
+        scrubber_db:
+            cls: local
+            db: "service=..."  # libpq DSN
+
+        # for storage checkers only:
+        storage:
+            cls: postgresql  # cannot be remote, as it needs direct access to the pg DB
+            db": "service=..."  # libpq DSN
+            objstorage:
+                cls: memory
+
+        # for journal checkers only:
+        journal_client:
+            # see https://docs.softwareheritage.org/devel/apidoc/swh.journal.client.html
+            # for the full list of options
+            sasl.mechanism: SCRAM-SHA-512
+            security.protocol: SASL_SSL
+            sasl.username: ...
+            sasl.password: ...
+            group_id: ...
+            privileged: True
+            message.max.bytes: 524288000
+            brokers:
+              - "broker1.journal.softwareheritage.org:9093
+              - "broker2.journal.softwareheritage.org:9093
+              - "broker3.journal.softwareheritage.org:9093
+              - "broker4.journal.softwareheritage.org:9093
+              - "broker5.journal.softwareheritage.org:9093
+            object_types: [directory, revision, snapshot, release]
+            auto_offset_reset: earliest
     """
     from swh.core import config
 
@@ -74,6 +108,7 @@ def scrubber_check_cli_group(ctx):
 @click.option("--end-object", default="f" * 40)
 @click.pass_context
 def scrubber_check_storage(ctx, object_type: str, start_object: str, end_object: str):
+    """Reads a postgresql storage, and reports corrupt objects to the scrubber DB."""
     conf = ctx.obj["config"]
     if "storage" not in conf:
         ctx.fail("You must have a storage configured in your config file.")
@@ -91,3 +126,19 @@ def scrubber_check_storage(ctx, object_type: str, start_object: str, end_object:
     )
 
     checker.check_storage()
+
+
+@scrubber_check_cli_group.command(name="journal")
+@click.pass_context
+def scrubber_check_journal(ctx) -> None:
+    """Reads a complete kafka journal, and reports corrupt objects to
+    the scrubber DB."""
+    conf = ctx.obj["config"]
+    if "journal_client" not in conf:
+        ctx.fail("You must have a journal_client configured in your config file.")
+
+    from .check_journal import JournalChecker
+
+    checker = JournalChecker(db=ctx.obj["db"], journal_client=conf["journal_client"],)
+
+    checker.check_journal()
