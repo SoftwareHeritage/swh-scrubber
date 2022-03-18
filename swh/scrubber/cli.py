@@ -115,7 +115,7 @@ def scrubber_check_storage(ctx, object_type: str, start_object: str, end_object:
 
     from swh.storage import get_storage
 
-    from .check_storage import StorageChecker
+    from .storage_checker import StorageChecker
 
     checker = StorageChecker(
         db=ctx.obj["db"],
@@ -125,7 +125,7 @@ def scrubber_check_storage(ctx, object_type: str, start_object: str, end_object:
         end_object=end_object,
     )
 
-    checker.check_storage()
+    checker.run()
 
 
 @scrubber_check_cli_group.command(name="journal")
@@ -137,8 +137,8 @@ def scrubber_check_journal(ctx) -> None:
     if "journal_client" not in conf:
         ctx.fail("You must have a journal_client configured in your config file.")
 
-    from .check_journal import JournalChecker
+    from .journal_checker import JournalChecker
 
     checker = JournalChecker(db=ctx.obj["db"], journal_client=conf["journal_client"],)
 
-    checker.check_journal()
+    checker.run()

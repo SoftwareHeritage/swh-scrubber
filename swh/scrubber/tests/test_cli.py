@@ -4,13 +4,13 @@
 # See top-level LICENSE file for more information
 
 import tempfile
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from click.testing import CliRunner
 import yaml
 
-from swh.scrubber.check_storage import storage_db
 from swh.scrubber.cli import scrubber_cli_group
+from swh.scrubber.storage_checker import storage_db
 
 
 def invoke(
@@ -59,7 +59,7 @@ def invoke(
 def test_check_storage(mocker, scrubber_db, swh_storage):
     storage_checker = MagicMock()
     StorageChecker = mocker.patch(
-        "swh.scrubber.check_storage.StorageChecker", return_value=storage_checker
+        "swh.scrubber.storage_checker.StorageChecker", return_value=storage_checker
     )
     get_scrubber_db = mocker.patch(
         "swh.scrubber.get_scrubber_db", return_value=scrubber_db
@@ -78,6 +78,7 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         start_object="0" * 40,
         end_object="f" * 40,
     )
+    assert storage_checker.method_calls == [call.run()]
 
 
 def test_check_journal(
@@ -85,7 +86,7 @@ def test_check_journal(
 ):
     journal_checker = MagicMock()
     JournalChecker = mocker.patch(
-        "swh.scrubber.check_journal.JournalChecker", return_value=journal_checker
+        "swh.scrubber.journal_checker.JournalChecker", return_value=journal_checker
     )
     get_scrubber_db = mocker.patch(
         "swh.scrubber.get_scrubber_db", return_value=scrubber_db
@@ -111,3 +112,4 @@ def test_check_journal(
             "stop_on_eof": True,
         },
     )
+    assert journal_checker.method_calls == [call.run()]

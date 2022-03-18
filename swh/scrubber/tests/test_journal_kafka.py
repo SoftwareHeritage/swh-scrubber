@@ -12,7 +12,7 @@ from swh.journal.serializers import kafka_to_value
 from swh.journal.writer import get_journal_writer
 from swh.model import swhids
 from swh.model.tests import swh_model_data
-from swh.scrubber.check_journal import JournalChecker
+from swh.scrubber.journal_checker import JournalChecker
 
 
 def journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group):
@@ -47,7 +47,7 @@ def test_no_corruption(scrubber_db, kafka_server, kafka_prefix, kafka_consumer_g
         journal_client=journal_client_config(
             kafka_server, kafka_prefix, kafka_consumer_group
         ),
-    ).check_journal()
+    ).run()
 
     assert list(scrubber_db.corrupt_object_iter()) == []
 
@@ -68,7 +68,7 @@ def test_corrupt_snapshot(
         journal_client=journal_client_config(
             kafka_server, kafka_prefix, kafka_consumer_group
         ),
-    ).check_journal()
+    ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
@@ -107,7 +107,7 @@ def test_corrupt_snapshots(
         journal_client=journal_client_config(
             kafka_server, kafka_prefix, kafka_consumer_group
         ),
-    ).check_journal()
+    ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
     assert len(corrupt_objects) == 2

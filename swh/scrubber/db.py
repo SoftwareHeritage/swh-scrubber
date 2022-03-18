@@ -16,9 +16,15 @@ from swh.model.swhids import CoreSWHID
 
 @dataclasses.dataclass(frozen=True)
 class Datastore:
+    """Represents a datastore being scrubbed; eg. swh-storage or swh-journal."""
+
     package: str
+    """'storage', 'journal', or 'objstorage'."""
     cls: str
+    """'postgresql'/'cassandra' for storage, 'kafka' for journal,
+    'pathslicer'/'winery'/... for objstorage."""
     instance: str
+    """Human readable string."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,6 +72,7 @@ class ScrubberDb(BaseDb):
         )
 
     def corrupt_object_iter(self) -> Iterator[CorruptObject]:
+        """Yields all records in the 'corrupt_object' table."""
         cur = self.cursor()
         cur.execute(
             """

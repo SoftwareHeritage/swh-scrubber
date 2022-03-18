@@ -34,15 +34,23 @@ def storage_db(storage):
 
 @dataclasses.dataclass
 class StorageChecker:
+    """Reads a chunk of a swh-storage database, recomputes checksums, and
+    reports errors in a separate database."""
+
     db: ScrubberDb
     storage: StorageInterface
     object_type: str
+    """``directory``/``revision``/``release``/``snapshot``"""
     start_object: str
+    """minimum value of the hexdigest of the object's sha1."""
     end_object: str
+    """maximum value of the hexdigest of the object's sha1."""
 
     _datastore = None
 
     def datastore_info(self) -> Datastore:
+        """Returns a :class:`Datastore` instance representing the swh-storage instance
+        being checked."""
         if self._datastore is None:
             if isinstance(self.storage, PostgresqlStorage):
                 with storage_db(self.storage) as db:
@@ -55,7 +63,10 @@ class StorageChecker:
                 )
         return self._datastore
 
-    def check_storage(self):
+    def run(self):
+        """Runs on all objects of ``object_type`` and with id between
+        ``start_object`` and ``end_object``.
+        """
         if isinstance(self.storage, PostgresqlStorage):
             with storage_db(self.storage) as db:
                 return self._check_postgresql(db)

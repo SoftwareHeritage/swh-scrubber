@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class JournalChecker:
+    """Reads a chunk of a swh-storage database, recomputes checksums, and
+    reports errors in a separate database."""
+
     _datastore = None
 
     def __init__(self, db: ScrubberDb, journal_client: Dict[str, Any]):
@@ -31,6 +34,8 @@ class JournalChecker:
         )
 
     def datastore_info(self) -> Datastore:
+        """Returns a :class:`Datastore` instance representing the journal instance
+        being checked."""
         if self._datastore is None:
             config = self.journal_client_config
             if config["cls"] == "kafka":
@@ -48,7 +53,10 @@ class JournalChecker:
                 )
         return self._datastore
 
-    def check_journal(self):
+    def run(self):
+        """Runs a journal client with the given configuration.
+        This method does not return, unless otherwise configured (with ``stop_on_eof``).
+        """
         self.journal_client.process(self.process_kafka_messages)
 
     def process_kafka_messages(self, all_messages: Dict[str, List[bytes]]):

@@ -12,7 +12,7 @@ import pytest
 from swh.journal.serializers import kafka_to_value
 from swh.model import swhids
 from swh.model.tests import swh_model_data
-from swh.scrubber.check_storage import StorageChecker
+from swh.scrubber.storage_checker import StorageChecker
 from swh.storage.backfill import byte_ranges
 
 # decorator to make swh.storage.backfill use less ranges, so tests run faster
@@ -36,7 +36,7 @@ def test_no_corruption(scrubber_db, swh_storage):
             object_type=object_type,
             start_object="00" * 20,
             end_object="ff" * 20,
-        ).check_storage()
+        ).run()
 
     assert list(scrubber_db.corrupt_object_iter()) == []
 
@@ -56,7 +56,7 @@ def test_corrupt_snapshot(scrubber_db, swh_storage, corrupt_idx):
             object_type=object_type,
             start_object="00" * 20,
             end_object="ff" * 20,
-        ).check_storage()
+        ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
@@ -92,7 +92,7 @@ def test_corrupt_snapshots(scrubber_db, swh_storage):
         object_type="snapshot",
         start_object="00" * 20,
         end_object="ff" * 20,
-    ).check_storage()
+    ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
     assert len(corrupt_objects) == 2
