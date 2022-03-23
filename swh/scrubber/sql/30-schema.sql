@@ -18,11 +18,20 @@ create table corrupt_object
 (
   id                    swhid not null,
   datastore             int not null,
-  first_occurrence      timestamptz not null default now(),
-  object                bytea not null
+  object                bytea not null,
+  first_occurrence      timestamptz not null default now()
 );
 
 comment on table corrupt_object is 'Each row identifies an object that was found to be corrupt';
 comment on column corrupt_object.datastore is 'Datastore the corrupt object was found in.';
-comment on column corrupt_object.first_occurrence is 'Moment the object was found to be corrupt for the first time';
 comment on column corrupt_object.object is 'Corrupt object, as found in the datastore (possibly msgpack-encoded, using the journal''s serializer)';
+comment on column corrupt_object.first_occurrence is 'Moment the object was found to be corrupt for the first time';
+
+create table object_origin
+(
+  object_id             swhid not null,
+  origin_url            text not null,
+  last_attempt          timestamptz  -- NULL if not tried yet
+);
+
+comment on table object_origin is 'Maps objects to origins they might be found in.';

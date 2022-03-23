@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, call
 from click.testing import CliRunner
 import yaml
 
+from swh.model.swhids import CoreSWHID
 from swh.scrubber.cli import scrubber_cli_group
 from swh.scrubber.storage_checker import storage_db
 
@@ -25,6 +26,7 @@ def invoke(
 
     config = {
         "scrubber_db": {"cls": "local", "db": scrubber_db.conn.dsn},
+        "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
         with storage_db(storage) as db:
@@ -113,3 +115,26 @@ def test_check_journal(
         },
     )
     assert journal_checker.method_calls == [call.run()]
+
+
+def test_locate_origins(mocker, scrubber_db, swh_storage):
+    origin_locator = MagicMock()
+    OriginLocator = mocker.patch(
+        "swh.scrubber.origin_locator.OriginLocator", return_value=origin_locator
+    )
+    get_scrubber_db = mocker.patch(
+        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
+    )
+    result = invoke(scrubber_db, ["locate"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    get_scrubber_db.assert_called_once_with(cls="local", db=scrubber_db.conn.dsn)
+    OriginLocator.assert_called_once_with(
+        db=scrubber_db,
+        storage=OriginLocator.mock_calls[0][2]["storage"],
+        graph=OriginLocator.mock_calls[0][2]["graph"],
+        start_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),
+        end_object=CoreSWHID.from_string("swh:1:snp:" + "ff" * 20),
+    )
+    assert origin_locator.method_calls == [call.run()]

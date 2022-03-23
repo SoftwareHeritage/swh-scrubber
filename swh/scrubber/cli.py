@@ -28,11 +28,12 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
 
         scrubber_db:
             cls: local
-            db: "service=..."  # libpq DSN
+            db: "service=..."    # libpq DSN
 
-        # for storage checkers only:
+        # for storage checkers + origin locator only:
         storage:
-            cls: postgresql  # cannot be remote, as it needs direct access to the pg DB
+            cls: postgresql     # cannot be remote for checkers, as they need direct
+                                # access to the pg DB
             db": "service=..."  # libpq DSN
             objstorage:
                 cls: memory
@@ -104,8 +105,8 @@ def scrubber_check_cli_group(ctx):
         ]
     ),
 )
-@click.option("--start-object", default="0" * 40)
-@click.option("--end-object", default="f" * 40)
+@click.option("--start-object", default="00" * 20)
+@click.option("--end-object", default="ff" * 20)
 @click.pass_context
 def scrubber_check_storage(ctx, object_type: str, start_object: str, end_object: str):
     """Reads a postgresql storage, and reports corrupt objects to the scrubber DB."""
@@ -142,3 +143,32 @@ def scrubber_check_journal(ctx) -> None:
     checker = JournalChecker(db=ctx.obj["db"], journal_client=conf["journal_client"],)
 
     checker.run()
+
+
+@scrubber_cli_group.command(name="locate")
+@click.option("--start-object", default="swh:1:cnt:" + "00" * 20)
+@click.option("--end-object", default="swh:1:snp:" + "ff" * 20)
+@click.pass_context
+def scrubber_locate_origins(ctx, start_object: str, end_object: str):
+    """For each known corrupt object reported in the scrubber DB, looks up origins
+    that may contain this object, and records them; so they can be used later
+    for recovery."""
+    conf = ctx.obj["config"]
+    if "storage" not in conf:
+        ctx.fail("You must have a storage configured in your config file.")
+
+    from swh.graph.client import RemoteGraphClient
+    from swh.model.model import CoreSWHID
+    from swh.storage import get_storage
+
+    from .origin_locator import OriginLocator
+
+    locator = OriginLocator(
+        db=ctx.obj["db"],
+        storage=get_storage(**conf["storage"]),
+        graph=RemoteGraphClient(**conf["graph"]),
+        start_object=CoreSWHID.from_string(start_object),
+        end_object=CoreSWHID.from_string(end_object),
+    )
+
+    locator.run()

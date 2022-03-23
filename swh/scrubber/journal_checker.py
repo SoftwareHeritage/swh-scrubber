@@ -66,4 +66,6 @@ class JournalChecker:
                 object_ = cls.from_dict(kafka_to_value(message))
                 real_id = object_.compute_hash()
                 if object_.id != real_id:
-                    self.db.corrupt_object_add(self.datastore_info(), object_, message)
+                    self.db.corrupt_object_add(
+                        object_.swhid(), self.datastore_info(), message
+                    )

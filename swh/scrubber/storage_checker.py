@@ -98,5 +98,7 @@ class StorageChecker:
             real_id = object_.compute_hash()
             if object_.id != real_id:
                 self.db.corrupt_object_add(
-                    self.datastore_info(), object_, value_to_kafka(object_.to_dict())
+                    object_.swhid(),
+                    self.datastore_info(),
+                    value_to_kafka(object_.to_dict()),
                 )
