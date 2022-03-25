@@ -156,6 +156,8 @@ def scrubber_locate_origins(ctx, start_object: str, end_object: str):
     conf = ctx.obj["config"]
     if "storage" not in conf:
         ctx.fail("You must have a storage configured in your config file.")
+    if "graph" not in conf:
+        ctx.fail("You must have a graph configured in your config file.")
 
     from swh.graph.client import RemoteGraphClient
     from swh.model.model import CoreSWHID
@@ -172,3 +174,24 @@ def scrubber_locate_origins(ctx, start_object: str, end_object: str):
     )
 
     locator.run()
+
+
+@scrubber_cli_group.command(name="fix")
+@click.option("--start-object", default="swh:1:cnt:" + "00" * 20)
+@click.option("--end-object", default="swh:1:snp:" + "ff" * 20)
+@click.pass_context
+def scrubber_fix_objects(ctx, start_object: str, end_object: str):
+    """For each known corrupt object reported in the scrubber DB, looks up origins
+    that may contain this object, and records them; so they can be used later
+    for recovery."""
+    from swh.model.model import CoreSWHID
+
+    from .fixer import Fixer
+
+    fixer = Fixer(
+        db=ctx.obj["db"],
+        start_object=CoreSWHID.from_string(start_object),
+        end_object=CoreSWHID.from_string(end_object),
+    )
+
+    fixer.run()
