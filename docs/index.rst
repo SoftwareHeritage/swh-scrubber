@@ -1,4 +1,4 @@
-.. _swh-py-template:
+.. _swh-scrubber:
 
 .. include:: README.rst
 
