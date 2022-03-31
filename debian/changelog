@@ -1,0 +1,5 @@
+swh-scrubber (0.0.1-1~swh1) unstable-swh; urgency=medium
+
+  * Initial release
+
+ -- Nicolas Dandrimont <nicolas@dandrimont.eu>  Thu, 31 Mar 2022 19:29:54 +0200
