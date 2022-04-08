@@ -64,7 +64,10 @@ class ScrubberDb(BaseDb):
         return id_
 
     def corrupt_object_add(
-        self, id: CoreSWHID, datastore: Datastore, serialized_object: bytes,
+        self,
+        id: CoreSWHID,
+        datastore: Datastore,
+        serialized_object: bytes,
     ) -> None:
         datastore_id = self.datastore_get_or_add(datastore)
         cur = self.cursor()
@@ -121,7 +124,10 @@ class ScrubberDb(BaseDb):
         return results
 
     def corrupt_object_get(
-        self, start_id: CoreSWHID, end_id: CoreSWHID, limit: int = 100,
+        self,
+        start_id: CoreSWHID,
+        end_id: CoreSWHID,
+        limit: int = 100,
     ) -> List[CorruptObject]:
         """Yields a page of records in the 'corrupt_object' table, ordered by id.
 
@@ -182,7 +188,11 @@ class ScrubberDb(BaseDb):
             LIMIT %(limit)s
             FOR UPDATE SKIP LOCKED
             """,
-            dict(start_id=str(start_id), end_id=str(end_id), limit=limit,),
+            dict(
+                start_id=str(start_id),
+                end_id=str(end_id),
+                limit=limit,
+            ),
         )
         return self._corrupt_object_list_from_cursor(cur)
 

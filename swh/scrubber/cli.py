@@ -17,7 +17,10 @@ from swh.core.cli import swh as swh_cli_group
     "--config-file",
     "-C",
     default=None,
-    type=click.Path(exists=True, dir_okay=False,),
+    type=click.Path(
+        exists=True,
+        dir_okay=False,
+    ),
     help="Configuration file.",
 )
 @click.pass_context
@@ -83,8 +86,7 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
 @scrubber_cli_group.group(name="check")
 @click.pass_context
 def scrubber_check_cli_group(ctx):
-    """group of commands which read from data stores and report errors.
-    """
+    """group of commands which read from data stores and report errors."""
     pass
 
 
@@ -140,7 +142,10 @@ def scrubber_check_journal(ctx) -> None:
 
     from .journal_checker import JournalChecker
 
-    checker = JournalChecker(db=ctx.obj["db"], journal_client=conf["journal_client"],)
+    checker = JournalChecker(
+        db=ctx.obj["db"],
+        journal_client=conf["journal_client"],
+    )
 
     checker.run()
 
