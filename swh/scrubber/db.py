@@ -53,12 +53,26 @@ class ScrubberDb(BaseDb):
         cur = self.cursor()
         cur.execute(
             """
-            INSERT INTO datastore (package, class, instance)
-            VALUES (%s, %s, %s)
-            ON CONFLICT DO NOTHING
-            RETURNING id
+            WITH inserted AS (
+                INSERT INTO datastore (package, class, instance)
+                VALUES (%(package)s, %(cls)s, %(instance)s)
+                ON CONFLICT DO NOTHING
+                RETURNING id
+            )
+            SELECT id
+            FROM inserted
+            UNION (
+                -- If the datastore already exists, we need to fetch its id
+                SELECT id
+                FROM datastore
+                WHERE
+                    package=%(package)s
+                    AND class=%(cls)s
+                    AND instance=%(instance)s
+            )
+            LIMIT 1
             """,
-            (datastore.package, datastore.cls, datastore.instance),
+            (dataclasses.asdict(datastore)),
         )
         (id_,) = cur.fetchone()
         return id_
