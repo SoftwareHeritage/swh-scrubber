@@ -6,7 +6,8 @@ Build-Depends:
  debhelper-compat (= 13),
  dh-python (>= 3),
  python3-all,
- python3-pytest (<< 7.0.0),
+ python3-dulwich,
+ python3-pytest,
  python3-pytest-mock,
  python3-pytest-postgresql,
  python3-setuptools,
@@ -15,9 +16,11 @@ Build-Depends:
  python3-swh.core.db.pytestplugin,
  python3-swh.graph.client,
  python3-swh.journal (>= 0.9.0),
+ python3-swh.loader.git (>= 1.4.0),
  python3-swh.model (>= 5.0.0),
  python3-swh.storage (>= 1.1.0),
- python3-yaml
+ python3-yaml,
+ git,
 Rules-Requires-Root: no
 Standards-Version: 4.6.0
 Homepage: https://forge.softwareheritage.org/source/swh-scrubber
