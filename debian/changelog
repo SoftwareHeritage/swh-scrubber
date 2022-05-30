@@ -1,3 +1,13 @@
+swh-scrubber (0.0.5-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 0.0.5     - (tagged by Antoine R. Dumont
+    (@ardumont) <antoine.romain.dumont@gmail.com> on 2022-05-30 17:55:26
+    +0200)
+  * Upstream changes:     - v0.0.5     - Reference the scrubber db model
+    upgrade (from version 1 to 2)
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Mon, 30 May 2022 16:02:37 +0000
+
 swh-scrubber (0.0.4-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 0.0.4     - (tagged by Antoine R. Dumont
