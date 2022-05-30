@@ -43,6 +43,6 @@ repos:
   - id: isort
 
 - repo: https://github.com/python/black
-  rev: 19.10b0
+  rev: 22.3.0
   hooks:
   - id: black

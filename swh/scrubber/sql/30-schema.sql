@@ -35,3 +35,16 @@ create table object_origin
 );
 
 comment on table object_origin is 'Maps objects to origins they might be found in.';
+
+create table fixed_object
+(
+  id                    swhid not null,
+  object                bytea not null,
+  method                text,
+  recovery_date         timestamptz not null default now()
+);
+
+comment on table fixed_object is 'Each row identifies an object that was found to be corrupt, along with the original version of the object';
+comment on column fixed_object.object is 'The recovered object itself, as a msgpack-encoded dict';
+comment on column fixed_object.recovery_date is 'Moment the object was recovered.';
+comment on column fixed_object.method is 'How the object was recovered. For example: "from_origin", "negative_utc", "capitalized_revision_parent".';

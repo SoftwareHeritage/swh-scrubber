@@ -1,0 +1,12 @@
+swh.core[http]>=0.3
+swh.loader.git>=1.4.0
+swh.model>=5.0.0
+swh.storage>=1.1.0
+swh.journal>=0.9.0
+
+[testing]
+pytest
+pytest-mock
+pyyaml
+swh.graph
+types-pyyaml

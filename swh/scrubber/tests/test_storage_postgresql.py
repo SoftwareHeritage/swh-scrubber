@@ -80,7 +80,7 @@ def test_corrupt_snapshot(scrubber_db, swh_storage, corrupt_idx):
 
 
 @patch_byte_ranges
-def test_corrupt_snapshots(scrubber_db, swh_storage):
+def test_corrupt_snapshots_same_batch(scrubber_db, swh_storage):
     snapshots = list(swh_model_data.SNAPSHOTS)
     for i in (0, 1):
         snapshots[i] = attr.evolve(snapshots[i], id=bytes([i]) * 20)
@@ -101,5 +101,45 @@ def test_corrupt_snapshots(scrubber_db, swh_storage):
         for swhid in [
             "swh:1:snp:0000000000000000000000000000000000000000",
             "swh:1:snp:0101010101010101010101010101010101010101",
+        ]
+    }
+
+
+@patch_byte_ranges
+def test_corrupt_snapshots_different_batches(scrubber_db, swh_storage):
+    snapshots = list(swh_model_data.SNAPSHOTS)
+    for i in (0, 1):
+        snapshots[i] = attr.evolve(snapshots[i], id=bytes([i * 255]) * 20)
+    swh_storage.snapshot_add(snapshots)
+
+    StorageChecker(
+        db=scrubber_db,
+        storage=swh_storage,
+        object_type="snapshot",
+        start_object="00" * 20,
+        end_object="87" * 20,
+    ).run()
+
+    corrupt_objects = list(scrubber_db.corrupt_object_iter())
+    assert len(corrupt_objects) == 1
+
+    # Simulates resuming from a different process, with an empty lru_cache
+    scrubber_db.datastore_get_or_add.cache_clear()
+
+    StorageChecker(
+        db=scrubber_db,
+        storage=swh_storage,
+        object_type="snapshot",
+        start_object="88" * 20,
+        end_object="ff" * 20,
+    ).run()
+
+    corrupt_objects = list(scrubber_db.corrupt_object_iter())
+    assert len(corrupt_objects) == 2
+    assert {co.id for co in corrupt_objects} == {
+        swhids.CoreSWHID.from_string(swhid)
+        for swhid in [
+            "swh:1:snp:0000000000000000000000000000000000000000",
+            "swh:1:snp:ffffffffffffffffffffffffffffffffffffffff",
         ]
     }
