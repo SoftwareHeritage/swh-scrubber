@@ -48,6 +48,7 @@ swh/scrubber/tests/__init__.py
 swh/scrubber/tests/conftest.py
 swh/scrubber/tests/test_cli.py
 swh/scrubber/tests/test_fixer.py
+swh/scrubber/tests/test_init.py
 swh/scrubber/tests/test_journal_kafka.py
 swh/scrubber/tests/test_origin_locator.py
 swh/scrubber/tests/test_storage_postgresql.py

@@ -45,7 +45,7 @@ class FixedObject:
 
 
 class ScrubberDb(BaseDb):
-    current_version = 1
+    current_version = 2
 
     @functools.lru_cache(1000)
     def datastore_get_or_add(self, datastore: Datastore) -> int:
