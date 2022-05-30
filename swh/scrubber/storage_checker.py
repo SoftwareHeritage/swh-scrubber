@@ -55,7 +55,9 @@ class StorageChecker:
             if isinstance(self.storage, PostgresqlStorage):
                 with storage_db(self.storage) as db:
                     self._datastore = Datastore(
-                        package="storage", cls="postgresql", instance=db.conn.dsn,
+                        package="storage",
+                        cls="postgresql",
+                        instance=db.conn.dsn,
                     )
             else:
                 raise NotImplementedError(

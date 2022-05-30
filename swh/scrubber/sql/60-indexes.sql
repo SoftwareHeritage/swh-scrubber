@@ -22,3 +22,8 @@ create index concurrently object_origin_by_origin on object_origin (origin_url, 
 -- FIXME: not valid, because corrupt_object(id) is not unique
 -- alter table object_origin add constraint object_origin_object_fkey foreign key (object_id) references corrupt_object(id) not valid;
 -- alter table object_origin validate constraint object_origin_object_fkey;
+
+-- fixed_object
+
+create unique index concurrently fixed_object_pkey on fixed_object(id);
+alter table fixed_object add primary key using index fixed_object_pkey;
