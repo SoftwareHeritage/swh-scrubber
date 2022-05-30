@@ -3,7 +3,7 @@
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
 
-from typing import Callable
+from typing import Callable, Optional
 
 import psycopg2
 
@@ -16,11 +16,23 @@ def iter_corrupt_objects(
     db: ScrubberDb,
     start_object: CoreSWHID,
     end_object: CoreSWHID,
+    origin_url: Optional[str],
     cb: Callable[[CorruptObject, psycopg2.extensions.cursor], None],
 ) -> None:
+    """Fetches objects and calls ``cb`` on each of them.
+
+    objects are fetched with an update lock, with the same transaction as ``cb``,
+    which is automatically committed after ``cb`` runs."""
     while True:
         with db.conn, db.cursor() as cur:
-            corrupt_objects = db.corrupt_object_grab(cur, start_object, end_object,)
+            if origin_url:
+                corrupt_objects = db.corrupt_object_grab_by_origin(
+                    cur, origin_url, start_object, end_object
+                )
+            else:
+                corrupt_objects = db.corrupt_object_grab_by_id(
+                    cur, start_object, end_object
+                )
             if corrupt_objects and corrupt_objects[0].id == start_object:
                 # TODO: don't needlessly fetch duplicate objects
                 del corrupt_objects[0]

@@ -71,7 +71,11 @@ class OriginLocator:
 
     def run(self):
         iter_corrupt_objects(
-            self.db, self.start_object, self.end_object, self.handle_corrupt_object
+            self.db,
+            self.start_object,
+            self.end_object,
+            None,
+            self.handle_corrupt_object,
         )
 
     def handle_corrupt_object(
