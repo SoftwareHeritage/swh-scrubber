@@ -1,3 +1,19 @@
+swh-scrubber (0.0.2-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 0.0.2     - (tagged by Antoine R. Dumont
+    (@ardumont) <antoine.romain.dumont@gmail.com> on 2022-05-30 10:15:15
+    +0200)
+  * Upstream changes:     - v0.0.2     - Add Fixer class, which re-loads
+    corrupt objects from origins     - Fix crash when using
+    datastore_get_or_add for an existing datastore     - Internals     -
+    --------     - requirements-test: Remove pytest pinning to < 7     -
+    add strict asyncio_mode in pytest.ini     - Bump mypy to v0.942     -
+    Add .git-blame-ignore-revs file with automatic reformatting commits
+    - python: Reformat code with black 22.3.0     - pre-commit, tox:
+    Bump black from 19.10b0 to 22.3.0
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Mon, 30 May 2022 08:19:10 +0000
+
 swh-scrubber (0.0.1-1~swh1) unstable-swh; urgency=medium
 
   * Initial release
