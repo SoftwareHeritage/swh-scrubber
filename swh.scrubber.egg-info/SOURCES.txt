@@ -44,6 +44,7 @@ swh/scrubber/utils.py
 swh/scrubber/sql/20-enums.sql
 swh/scrubber/sql/30-schema.sql
 swh/scrubber/sql/60-indexes.sql
+swh/scrubber/sql/upgrades/2.sql
 swh/scrubber/tests/__init__.py
 swh/scrubber/tests/conftest.py
 swh/scrubber/tests/test_cli.py
