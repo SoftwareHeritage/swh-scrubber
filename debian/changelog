@@ -1,3 +1,9 @@
+swh-scrubber (0.0.2-1~swh2) unstable-swh; urgency=medium
+
+  * Update dependencies and bump new release
+
+ -- Antoine R. Dumont (@ardumont) <ardumont@softwareheritage.org>  Mon, 30 May 2022 14:25:52 +0200
+
 swh-scrubber (0.0.2-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 0.0.2     - (tagged by Antoine R. Dumont
