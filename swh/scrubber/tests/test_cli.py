@@ -25,7 +25,7 @@ def invoke(
     runner = CliRunner()
 
     config = {
-        "scrubber_db": {"cls": "local", "db": scrubber_db.conn.dsn},
+        "scrubber_db": {"cls": "postgresql", "db": scrubber_db.conn.dsn},
         "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
@@ -72,7 +72,7 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="local", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
     StorageChecker.assert_called_once_with(
         db=scrubber_db,
         storage=StorageChecker.mock_calls[0][2]["storage"],
@@ -103,7 +103,7 @@ def test_check_journal(
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="local", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
     JournalChecker.assert_called_once_with(
         db=scrubber_db,
         journal_client={
@@ -129,7 +129,7 @@ def test_locate_origins(mocker, scrubber_db, swh_storage):
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="local", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
     OriginLocator.assert_called_once_with(
         db=scrubber_db,
         storage=OriginLocator.mock_calls[0][2]["storage"],
@@ -150,7 +150,7 @@ def test_fix_objects(mocker, scrubber_db):
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="local", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
     Fixer.assert_called_once_with(
         db=scrubber_db,
         start_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),

@@ -8,14 +8,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .db import ScrubberDb
+    from swh.scrubber.db import ScrubberDb
 
 
 def get_scrubber_db(cls: str, **kwargs) -> ScrubberDb:
-    if cls != "local":
-        raise ValueError(f"Unknown scrubber db class '{cls}', use 'local' instead.")
+    if cls not in ("local", "postgresql"):
+        raise ValueError(
+            f"Unknown scrubber db class '{cls}', use 'postgresql' instead."
+        )
 
-    from .db import ScrubberDb
+    from swh.scrubber.db import ScrubberDb
 
     return ScrubberDb.connect(kwargs.pop("db"), **kwargs)
 
