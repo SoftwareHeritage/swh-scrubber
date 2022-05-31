@@ -74,7 +74,9 @@ class ScrubberDb(BaseDb):
                 """,
                 (dataclasses.asdict(datastore)),
             )
-            (id_,) = cur.fetchone()
+            res = cur.fetchone()
+            assert res is not None
+            (id_,) = res
             return id_
 
     def corrupt_object_add(
