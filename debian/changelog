@@ -1,8 +1,11 @@
-swh-scrubber (0.0.5-1~swh1~bpo10+1) buster-swh; urgency=medium
+swh-scrubber (0.0.6-1~swh1) unstable-swh; urgency=medium
 
-  * Rebuild for buster-swh
+  * New upstream release 0.0.6     - (tagged by Antoine R. Dumont
+    (@ardumont) <antoine.romain.dumont@gmail.com> on 2022-05-31 11:15:58
+    +0200)
+  * Upstream changes:     - v0.0.6     - Wrap queries in transaction
 
- -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Mon, 30 May 2022 16:05:09 +0000
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Tue, 31 May 2022 09:20:56 +0000
 
 swh-scrubber (0.0.5-1~swh1) unstable-swh; urgency=medium
 
