@@ -44,6 +44,7 @@ def test_no_corruption(scrubber_db, swh_storage):
 @pytest.mark.parametrize("corrupt_idx", range(len(swh_model_data.SNAPSHOTS)))
 @patch_byte_ranges
 def test_corrupt_snapshot(scrubber_db, swh_storage, corrupt_idx):
+    storage_dsn = swh_storage.get_db().conn.dsn
     snapshots = list(swh_model_data.SNAPSHOTS)
     snapshots[corrupt_idx] = attr.evolve(snapshots[corrupt_idx], id=b"\x00" * 20)
     swh_storage.snapshot_add(snapshots)
@@ -66,9 +67,7 @@ def test_corrupt_snapshot(scrubber_db, swh_storage, corrupt_idx):
     )
     assert corrupt_objects[0].datastore.package == "storage"
     assert corrupt_objects[0].datastore.cls == "postgresql"
-    assert corrupt_objects[0].datastore.instance.startswith(
-        "user=postgres password=xxx dbname=storage host="
-    )
+    assert corrupt_objects[0].datastore.instance.startswith(storage_dsn)
     assert (
         before_date - datetime.timedelta(seconds=5)
         <= corrupt_objects[0].first_occurrence
