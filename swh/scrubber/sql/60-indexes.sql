@@ -1,3 +1,7 @@
+-------------------------------------
+-- Shared tables
+-------------------------------------
+
 -- datastore
 
 create unique index concurrently datastore_pkey on datastore(id);
@@ -6,6 +10,10 @@ alter table datastore add primary key using index datastore_pkey;
 create unique index concurrently datastore_package_class_instance on datastore(package, class, instance);
 
 
+-------------------------------------
+-- Inventory of objects with issues
+-------------------------------------
+
 -- corrupt_object
 
 alter table corrupt_object add constraint corrupt_object_datastore_fkey foreign key (datastore) references datastore(id) not valid;
@@ -13,6 +21,28 @@ alter table corrupt_object validate constraint corrupt_object_datastore_fkey;
 
 create unique index concurrently corrupt_object_pkey on corrupt_object(id, datastore);
 alter table corrupt_object add primary key using index corrupt_object_pkey;
+
+
+-- missing_object
+
+alter table missing_object add constraint missing_object_datastore_fkey foreign key (datastore) references datastore(id) not valid;
+alter table missing_object validate constraint missing_object_datastore_fkey;
+
+create unique index concurrently missing_object_pkey on missing_object(id, datastore);
+alter table missing_object add primary key using index missing_object_pkey;
+
+
+-- missing_object_reference
+
+alter table missing_object_reference add constraint missing_object_reference_datastore_fkey foreign key (datastore) references datastore(id) not valid;
+alter table missing_object_reference validate constraint missing_object_reference_datastore_fkey;
+
+create unique index concurrently missing_object_reference_missing_id_reference_id_datastore on missing_object_reference(missing_id, reference_id, datastore);
+create unique index concurrently missing_object_reference_reference_id_missing_id_datastore on missing_object_reference(reference_id, missing_id, datastore);
+
+-------------------------------------
+-- Issue resolution
+-------------------------------------
 
 -- object_origin
 

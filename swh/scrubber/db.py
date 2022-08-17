@@ -7,7 +7,7 @@
 import dataclasses
 import datetime
 import functools
-from typing import Iterator, List, Optional
+from typing import Iterable, Iterator, List, Optional
 
 import psycopg2
 
@@ -37,6 +37,21 @@ class CorruptObject:
 
 
 @dataclasses.dataclass(frozen=True)
+class MissingObject:
+    id: CoreSWHID
+    datastore: Datastore
+    first_occurrence: datetime.datetime
+
+
+@dataclasses.dataclass(frozen=True)
+class MissingObjectReference:
+    missing_id: CoreSWHID
+    reference_id: CoreSWHID
+    datastore: Datastore
+    first_occurrence: datetime.datetime
+
+
+@dataclasses.dataclass(frozen=True)
 class FixedObject:
     id: CoreSWHID
     object_: bytes
@@ -46,6 +61,10 @@ class FixedObject:
 
 class ScrubberDb(BaseDb):
     current_version = 2
+
+    ####################################
+    # Shared tables
+    ####################################
 
     @functools.lru_cache(1000)
     def datastore_get_or_add(self, datastore: Datastore) -> int:
@@ -78,6 +97,10 @@ class ScrubberDb(BaseDb):
             assert res is not None
             (id_,) = res
             return id_
+
+    ####################################
+    # Inventory of objects with issues
+    ####################################
 
     def corrupt_object_add(
         self,
@@ -255,6 +278,113 @@ class ScrubberDb(BaseDb):
             ),
         )
         return self._corrupt_object_list_from_cursor(cur)
+
+    def missing_object_add(
+        self,
+        id: CoreSWHID,
+        reference_ids: Iterable[CoreSWHID],
+        datastore: Datastore,
+    ) -> None:
+        """
+        Adds a "hole" to the inventory, ie. an object missing from a datastore
+        that is referenced by an other object of the same datastore.
+
+        If the missing object is already known to be missing by the scrubber database,
+        this only records the reference (which can be useful to locate an origin
+        to recover the object from).
+        If that reference is already known too, this is a noop.
+
+        Args:
+            id: SWHID of the missing object (the hole)
+            reference_id: SWHID of the object referencing the missing object
+            datastore: representation of the swh-storage/swh-journal/... instance
+              containing this hole
+        """
+        if not reference_ids:
+            raise ValueError("reference_ids is empty")
+        datastore_id = self.datastore_get_or_add(datastore)
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                INSERT INTO missing_object (id, datastore)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (str(id), datastore_id),
+            )
+            psycopg2.extras.execute_batch(
+                cur,
+                """
+                INSERT INTO missing_object_reference (missing_id, reference_id, datastore)
+                VALUES (%s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                [
+                    (str(id), str(reference_id), datastore_id)
+                    for reference_id in reference_ids
+                ],
+            )
+
+    def missing_object_iter(self) -> Iterator[MissingObject]:
+        """Yields all records in the 'missing_object' table."""
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                SELECT
+                    mo.id, mo.first_occurrence,
+                    ds.package, ds.class, ds.instance
+                FROM missing_object AS mo
+                INNER JOIN datastore AS ds ON (ds.id=mo.datastore)
+                """
+            )
+
+            for row in cur:
+                (id, first_occurrence, ds_package, ds_class, ds_instance) = row
+                yield MissingObject(
+                    id=CoreSWHID.from_string(id),
+                    first_occurrence=first_occurrence,
+                    datastore=Datastore(
+                        package=ds_package, cls=ds_class, instance=ds_instance
+                    ),
+                )
+
+    def missing_object_reference_iter(
+        self, missing_id: CoreSWHID
+    ) -> Iterator[MissingObjectReference]:
+        """Yields all records in the 'missing_object_reference' table."""
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                SELECT
+                    mor.reference_id, mor.first_occurrence,
+                    ds.package, ds.class, ds.instance
+                FROM missing_object_reference AS mor
+                INNER JOIN datastore AS ds ON (ds.id=mor.datastore)
+                WHERE mor.missing_id=%s
+                """,
+                (str(missing_id),),
+            )
+
+            for row in cur:
+                (
+                    reference_id,
+                    first_occurrence,
+                    ds_package,
+                    ds_class,
+                    ds_instance,
+                ) = row
+                yield MissingObjectReference(
+                    missing_id=missing_id,
+                    reference_id=CoreSWHID.from_string(reference_id),
+                    first_occurrence=first_occurrence,
+                    datastore=Datastore(
+                        package=ds_package, cls=ds_class, instance=ds_instance
+                    ),
+                )
+
+    ####################################
+    # Issue resolution
+    ####################################
 
     def object_origin_add(
         self, cur: psycopg2.extensions.cursor, swhid: CoreSWHID, origins: List[str]

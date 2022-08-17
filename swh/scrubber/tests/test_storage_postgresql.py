@@ -10,12 +10,55 @@ import attr
 import pytest
 
 from swh.journal.serializers import kafka_to_value
-from swh.model import swhids
+from swh.model import model, swhids
 from swh.model.tests import swh_model_data
 from swh.scrubber.storage_checker import StorageChecker
 from swh.storage.backfill import byte_ranges
 
-# decorator to make swh.storage.backfill use less ranges, so tests run faster
+CONTENT1 = model.Content.from_data(b"foo")
+DIRECTORY1 = model.Directory(
+    entries=(
+        model.DirectoryEntry(
+            target=CONTENT1.sha1_git, type="file", name=b"file1", perms=0o1
+        ),
+    )
+)
+DIRECTORY2 = model.Directory(
+    entries=(
+        model.DirectoryEntry(
+            target=CONTENT1.sha1_git, type="file", name=b"file2", perms=0o1
+        ),
+        model.DirectoryEntry(target=DIRECTORY1.id, type="dir", name=b"dir1", perms=0o1),
+        model.DirectoryEntry(target=b"\x00" * 20, type="rev", name=b"rev1", perms=0o1),
+    )
+)
+REVISION1 = model.Revision(
+    message=b"blah",
+    directory=DIRECTORY2.id,
+    author=None,
+    committer=None,
+    date=None,
+    committer_date=None,
+    type=model.RevisionType.GIT,
+    synthetic=True,
+)
+RELEASE1 = model.Release(
+    message=b"blih",
+    name=b"bluh",
+    target_type=model.ObjectType.REVISION,
+    target=REVISION1.id,
+    synthetic=True,
+)
+SNAPSHOT1 = model.Snapshot(
+    branches={
+        b"rel1": model.SnapshotBranch(
+            target_type=model.TargetType.RELEASE, target=RELEASE1.id
+        ),
+    }
+)
+
+
+# decorator to make swh.storage.backfill use fewer ranges, so tests run faster
 patch_byte_ranges = unittest.mock.patch(
     "swh.storage.backfill.byte_ranges",
     lambda numbits, start, end: byte_ranges(numbits // 8, start, end),
@@ -142,3 +185,107 @@ def test_corrupt_snapshots_different_batches(scrubber_db, swh_storage):
             "swh:1:snp:ffffffffffffffffffffffffffffffffffffffff",
         ]
     }
+
+
+@patch_byte_ranges
+def test_no_hole(scrubber_db, swh_storage):
+    swh_storage.content_add([CONTENT1])
+    swh_storage.directory_add([DIRECTORY1, DIRECTORY2])
+    swh_storage.revision_add([REVISION1])
+    swh_storage.release_add([RELEASE1])
+    swh_storage.snapshot_add([SNAPSHOT1])
+
+    for object_type in ("snapshot", "release", "revision", "directory"):
+        StorageChecker(
+            db=scrubber_db,
+            storage=swh_storage,
+            object_type=object_type,
+            start_object="00" * 20,
+            end_object="ff" * 20,
+        ).run()
+
+    assert list(scrubber_db.missing_object_iter()) == []
+
+
+@pytest.mark.parametrize(
+    "missing_object",
+    ["content1", "directory1", "directory2", "revision1", "release1"],
+)
+@patch_byte_ranges
+def test_one_hole(scrubber_db, swh_storage, missing_object):
+    if missing_object == "content1":
+        missing_swhid = CONTENT1.swhid()
+        reference_swhids = [DIRECTORY1.swhid(), DIRECTORY2.swhid()]
+    else:
+        swh_storage.content_add([CONTENT1])
+
+    if missing_object == "directory1":
+        missing_swhid = DIRECTORY1.swhid()
+        reference_swhids = [DIRECTORY2.swhid()]
+    else:
+        swh_storage.directory_add([DIRECTORY1])
+
+    if missing_object == "directory2":
+        missing_swhid = DIRECTORY2.swhid()
+        reference_swhids = [REVISION1.swhid()]
+    else:
+        swh_storage.directory_add([DIRECTORY2])
+
+    if missing_object == "revision1":
+        missing_swhid = REVISION1.swhid()
+        reference_swhids = [RELEASE1.swhid()]
+    else:
+        swh_storage.revision_add([REVISION1])
+
+    if missing_object == "release1":
+        missing_swhid = RELEASE1.swhid()
+        reference_swhids = [SNAPSHOT1.swhid()]
+    else:
+        swh_storage.release_add([RELEASE1])
+
+    swh_storage.snapshot_add([SNAPSHOT1])
+
+    for object_type in ("snapshot", "release", "revision", "directory"):
+        StorageChecker(
+            db=scrubber_db,
+            storage=swh_storage,
+            object_type=object_type,
+            start_object="00" * 20,
+            end_object="ff" * 20,
+        ).run()
+
+    assert [mo.id for mo in scrubber_db.missing_object_iter()] == [missing_swhid]
+    assert {
+        (mor.missing_id, mor.reference_id)
+        for mor in scrubber_db.missing_object_reference_iter(missing_swhid)
+    } == {(missing_swhid, reference_swhid) for reference_swhid in reference_swhids}
+
+
+@patch_byte_ranges
+def test_two_holes(scrubber_db, swh_storage):
+    # missing content and revision
+    swh_storage.directory_add([DIRECTORY1, DIRECTORY2])
+    swh_storage.release_add([RELEASE1])
+    swh_storage.snapshot_add([SNAPSHOT1])
+
+    for object_type in ("snapshot", "release", "revision", "directory"):
+        StorageChecker(
+            db=scrubber_db,
+            storage=swh_storage,
+            object_type=object_type,
+            start_object="00" * 20,
+            end_object="ff" * 20,
+        ).run()
+
+    assert {mo.id for mo in scrubber_db.missing_object_iter()} == {
+        CONTENT1.swhid(),
+        REVISION1.swhid(),
+    }
+    assert {
+        mor.reference_id
+        for mor in scrubber_db.missing_object_reference_iter(CONTENT1.swhid())
+    } == {DIRECTORY1.swhid(), DIRECTORY2.swhid()}
+    assert {
+        mor.reference_id
+        for mor in scrubber_db.missing_object_reference_iter(REVISION1.swhid())
+    } == {RELEASE1.swhid()}
