@@ -113,8 +113,13 @@ class StorageChecker:
             )
             objects = list(objects)
 
-            with self.statsd().timed("batch_duration_seconds"):
+            with self.statsd().timed(
+                "batch_duration_seconds", tags={"operation": "check_hashes"}
+            ):
                 self.check_object_hashes(objects)
+            with self.statsd().timed(
+                "batch_duration_seconds", tags={"operation": "check_references"}
+            ):
                 self.check_object_references(objects)
 
     def check_object_hashes(self, objects: Iterable[ScrubbableObject]):
