@@ -205,11 +205,39 @@ class StorageChecker:
             else:
                 assert False, object_.swhid()
 
-        missing_cnts = self.storage.content_missing_per_sha1_git(list(cnt_references))
-        missing_dirs = self.storage.directory_missing(list(dir_references))
-        missing_revs = self.storage.revision_missing(list(rev_references))
-        missing_rels = self.storage.release_missing(list(rel_references))
-        missing_snps = self.storage.snapshot_missing(list(snp_references))
+        missing_cnts = set(
+            self.storage.content_missing_per_sha1_git(list(cnt_references))
+        )
+        missing_dirs = set(self.storage.directory_missing(list(dir_references)))
+        missing_revs = set(self.storage.revision_missing(list(rev_references)))
+        missing_rels = set(self.storage.release_missing(list(rel_references)))
+        missing_snps = set(self.storage.snapshot_missing(list(snp_references)))
+
+        self.statsd().increment(
+            "missing_object_total",
+            len(missing_cnts),
+            tags={"target_object_type": "content"},
+        )
+        self.statsd().increment(
+            "missing_object_total",
+            len(missing_dirs),
+            tags={"target_object_type": "directory"},
+        )
+        self.statsd().increment(
+            "missing_object_total",
+            len(missing_revs),
+            tags={"target_object_type": "revision"},
+        )
+        self.statsd().increment(
+            "missing_object_total",
+            len(missing_rels),
+            tags={"target_object_type": "release"},
+        )
+        self.statsd().increment(
+            "missing_object_total",
+            len(missing_snps),
+            tags={"target_object_type": "snapshot"},
+        )
 
         for missing_id in missing_cnts:
             missing_swhid = swhids.CoreSWHID(
