@@ -8,15 +8,14 @@ from functools import partial
 import pytest
 from pytest_postgresql import factories
 
-from swh.core.db.pytest_plugin import initialize_database_for_module, postgresql_fact
+from swh.core.db.pytest_plugin import initialize_database_for_module
 from swh.scrubber.db import ScrubberDb
 
 scrubber_postgresql_proc = factories.postgresql_proc(
-    dbname="scrubber",
     load=[partial(initialize_database_for_module, modname="scrubber", version=1)],
 )
 
-postgresql_scrubber = postgresql_fact("scrubber_postgresql_proc")
+postgresql_scrubber = factories.postgresql("scrubber_postgresql_proc")
 
 
 @pytest.fixture
