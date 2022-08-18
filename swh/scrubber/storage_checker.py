@@ -11,6 +11,7 @@ import dataclasses
 import logging
 from typing import Iterable, Union
 
+from swh.core.statsd import statsd
 from swh.journal.serializers import value_to_kafka
 from swh.model import swhids
 from swh.model.model import (
@@ -91,7 +92,7 @@ class StorageChecker:
         for range_start, range_end in backfill.RANGE_GENERATORS[self.object_type](
             self.start_object, self.end_object
         ):
-            logger.info(
+            logger.debug(
                 "Processing %s range %s to %s",
                 self.object_type,
                 backfill._format_range_bound(range_start),
@@ -103,22 +104,38 @@ class StorageChecker:
             )
             objects = list(objects)
 
-            self.check_object_hashes(objects)
-            self.check_object_references(objects)
+            with statsd.timed(
+                "swh_scrubber_batch_duration_seconds",
+                tags={"object_type": self.object_type},
+            ):
+                self.check_object_hashes(objects)
+                self.check_object_references(objects)
 
     def check_object_hashes(self, objects: Iterable[ScrubbableObject]):
         """Recomputes hashes, and reports mismatches."""
+        count = 0
         for object_ in objects:
             if isinstance(object_, Content):
                 # TODO
                 continue
             real_id = object_.compute_hash()
+            count += 1
             if object_.id != real_id:
+                statsd.increment(
+                    "swh_scrubber_hash_mismatch_total",
+                    tags={"object_type": self.object_type},
+                )
                 self.db.corrupt_object_add(
                     object_.swhid(),
                     self.datastore_info(),
                     value_to_kafka(object_.to_dict()),
                 )
+        if count:
+            statsd.increment(
+                "swh_scrubber_objects_hashed_total",
+                count,
+                tags={"object_type": self.object_type},
+            )
 
     def check_object_references(self, objects: Iterable[ScrubbableObject]):
         """Check all objects references by these objects exist."""
