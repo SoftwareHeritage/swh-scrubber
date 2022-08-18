@@ -11,7 +11,7 @@ import dataclasses
 import logging
 from typing import Iterable, Union
 
-from swh.core.statsd import statsd
+from swh.core.statsd import Statsd
 from swh.journal.serializers import value_to_kafka
 from swh.model import swhids
 from swh.model.model import (
@@ -58,6 +58,7 @@ class StorageChecker:
     """maximum value of the hexdigest of the object's sha1."""
 
     _datastore = None
+    _statsd = None
 
     def datastore_info(self) -> Datastore:
         """Returns a :class:`Datastore` instance representing the swh-storage instance
@@ -75,6 +76,14 @@ class StorageChecker:
                     f"StorageChecker(storage={self.storage!r}).datastore()"
                 )
         return self._datastore
+
+    def statsd(self) -> Statsd:
+        if self._statsd is None:
+            self._statsd = Statsd(
+                namespace="swh_scrubber",
+                constant_tags={"object_type": self.object_type},
+            )
+        return self._statsd
 
     def run(self):
         """Runs on all objects of ``object_type`` and with id between
@@ -104,10 +113,7 @@ class StorageChecker:
             )
             objects = list(objects)
 
-            with statsd.timed(
-                "swh_scrubber_batch_duration_seconds",
-                tags={"object_type": self.object_type},
-            ):
+            with self.statsd().timed("batch_duration_seconds"):
                 self.check_object_hashes(objects)
                 self.check_object_references(objects)
 
@@ -121,21 +127,14 @@ class StorageChecker:
             real_id = object_.compute_hash()
             count += 1
             if object_.id != real_id:
-                statsd.increment(
-                    "swh_scrubber_hash_mismatch_total",
-                    tags={"object_type": self.object_type},
-                )
+                self.statsd().increment("hash_mismatch_total")
                 self.db.corrupt_object_add(
                     object_.swhid(),
                     self.datastore_info(),
                     value_to_kafka(object_.to_dict()),
                 )
         if count:
-            statsd.increment(
-                "swh_scrubber_objects_hashed_total",
-                count,
-                tags={"object_type": self.object_type},
-            )
+            self.statsd().increment("objects_hashed_total", count)
 
     def check_object_references(self, objects: Iterable[ScrubbableObject]):
         """Check all objects references by these objects exist."""
