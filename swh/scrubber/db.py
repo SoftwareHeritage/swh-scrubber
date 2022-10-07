@@ -131,8 +131,8 @@ class ScrubberDb(BaseDb):
         Returns the last date the given range was checked in the given datastore,
         or :const:`None` if it was never checked.
 
-        Currently, this checks range boundaries exactly, with no regard for ranges
-        that contain or are contained by it.
+        Currently, this matches range boundaries exactly, with no regard for
+        ranges that contain or are contained by it.
         """
         datastore_id = self.datastore_get_or_add(datastore)
         with self.transaction() as cur:

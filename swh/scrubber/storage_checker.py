@@ -145,6 +145,26 @@ class StorageChecker:
             )
 
             start_time = datetime.datetime.now(tz=datetime.timezone.utc)
+
+            # Currently, this matches range boundaries exactly, with no regard for
+            # ranges that contain or are contained by it.
+            last_check_time = self.db.checked_range_get_last_date(
+                self.datastore_info(),
+                range_start_swhid,
+                range_end_swhid,
+            )
+
+            if last_check_time is not None:
+                # TODO: re-check if 'last_check_time' was a long ago.
+                logger.debug(
+                    "Skipping processing of %s range %s to %s: already done at %s",
+                    self.object_type,
+                    backfill._format_range_bound(range_start),
+                    backfill._format_range_bound(range_end),
+                    last_check_time,
+                )
+                continue
+
             logger.debug(
                 "Processing %s range %s to %s",
                 self.object_type,

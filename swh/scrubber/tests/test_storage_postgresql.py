@@ -297,6 +297,47 @@ def test_corrupt_snapshots_different_batches(scrubber_db, datastore, swh_storage
 
 
 @patch_byte_ranges
+def test_no_recheck(scrubber_db, datastore, swh_storage):
+    """
+    Tests that objects that were already checked are not checked again on
+    the next run.
+    """
+    # Corrupt two snapshots
+    snapshots = list(swh_model_data.SNAPSHOTS)
+    for i in (0, 1):
+        snapshots[i] = attr.evolve(snapshots[i], id=bytes([i]) * 20)
+    swh_storage.snapshot_add(snapshots)
+
+    # Mark ranges as already checked
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    for (range_start, range_end) in EXPECTED_RANGES:
+        scrubber_db.checked_range_upsert(datastore, range_start, range_end, now)
+
+    StorageChecker(
+        db=scrubber_db,
+        storage=swh_storage,
+        object_type="snapshot",
+        start_object="00" * 20,
+        end_object="ff" * 20,
+    ).run()
+
+    corrupt_objects = list(scrubber_db.corrupt_object_iter())
+    assert (
+        corrupt_objects == []
+    ), "Detected corrupt objects in ranges that should have been skipped."
+
+    # Make sure the DB was not changed (in particular, that timestamps were not bumped)
+    ranges = [
+        (str(range_start), str(range_end), date)
+        for (range_start, range_end, date) in scrubber_db.checked_range_iter(datastore)
+    ]
+    ranges.sort(key=str)
+    assert ranges == [
+        (range_start, range_end, now) for (range_start, range_end) in EXPECTED_RANGES
+    ]
+
+
+@patch_byte_ranges
 def test_no_hole(scrubber_db, datastore, swh_storage):
     swh_storage.content_add([CONTENT1])
     swh_storage.directory_add([DIRECTORY1, DIRECTORY2])
