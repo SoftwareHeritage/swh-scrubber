@@ -1,3 +1,14 @@
+swh-scrubber (0.1.1-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 0.1.1     - (tagged by Valentin Lorentz
+    <vlorentz@softwareheritage.org> on 2022-10-17 15:05:50 +0200)
+  * Upstream changes:     - v0.1.1     - * Add checkpointing on
+    storage_checker to avoid rechecking objects at     - the beginning
+    of ranges again and again     - This release contains a database
+    migration, that must be applied before     - restarting workers.
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Mon, 17 Oct 2022 13:10:49 +0000
+
 swh-scrubber (0.1.0-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 0.1.0     - (tagged by Nicolas Dandrimont
