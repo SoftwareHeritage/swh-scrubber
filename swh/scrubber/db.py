@@ -7,7 +7,7 @@
 import dataclasses
 import datetime
 import functools
-from typing import Iterable, Iterator, List, Optional
+from typing import Iterable, Iterator, List, Optional, Tuple
 
 import psycopg2
 
@@ -60,7 +60,7 @@ class FixedObject:
 
 
 class ScrubberDb(BaseDb):
-    current_version = 3
+    current_version = 4
 
     ####################################
     # Shared tables
@@ -97,6 +97,81 @@ class ScrubberDb(BaseDb):
             assert res is not None
             (id_,) = res
             return id_
+
+    ####################################
+    # Checkpointing/progress tracking
+    ####################################
+
+    def checked_range_upsert(
+        self,
+        datastore: Datastore,
+        range_start: CoreSWHID,
+        range_end: CoreSWHID,
+        date: datetime.datetime,
+    ) -> None:
+        """
+        Records in the database the given range was last checked at the given date.
+        """
+        datastore_id = self.datastore_get_or_add(datastore)
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                INSERT INTO checked_range(datastore, range_start, range_end, last_date)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (datastore, range_start, range_end) DO UPDATE
+                    SET last_date = GREATEST(checked_range.last_date, EXCLUDED.last_date)
+                """,
+                (datastore_id, str(range_start), str(range_end), date),
+            )
+
+    def checked_range_get_last_date(
+        self, datastore: Datastore, range_start: CoreSWHID, range_end: CoreSWHID
+    ) -> Optional[datetime.datetime]:
+        """
+        Returns the last date the given range was checked in the given datastore,
+        or :const:`None` if it was never checked.
+
+        Currently, this matches range boundaries exactly, with no regard for
+        ranges that contain or are contained by it.
+        """
+        datastore_id = self.datastore_get_or_add(datastore)
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                SELECT last_date
+                FROM checked_range
+                WHERE datastore=%s AND range_start=%s AND range_end=%s
+                """,
+                (datastore_id, str(range_start), str(range_end)),
+            )
+
+            res = cur.fetchone()
+            if res is None:
+                return None
+            else:
+                (date,) = res
+                return date
+
+    def checked_range_iter(
+        self, datastore: Datastore
+    ) -> Iterator[Tuple[CoreSWHID, CoreSWHID, datetime.datetime]]:
+        datastore_id = self.datastore_get_or_add(datastore)
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                SELECT range_start, range_end, last_date
+                FROM checked_range
+                WHERE datastore=%s
+                """,
+                (datastore_id,),
+            )
+
+            for (range_start, range_end, last_date) in cur:
+                yield (
+                    CoreSWHID.from_string(range_start),
+                    CoreSWHID.from_string(range_end),
+                    last_date,
+                )
 
     ####################################
     # Inventory of objects with issues
