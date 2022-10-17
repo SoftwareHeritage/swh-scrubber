@@ -46,9 +46,11 @@ swh/scrubber/sql/30-schema.sql
 swh/scrubber/sql/60-indexes.sql
 swh/scrubber/sql/upgrades/2.sql
 swh/scrubber/sql/upgrades/3.sql
+swh/scrubber/sql/upgrades/4.sql
 swh/scrubber/tests/__init__.py
 swh/scrubber/tests/conftest.py
 swh/scrubber/tests/test_cli.py
+swh/scrubber/tests/test_db.py
 swh/scrubber/tests/test_fixer.py
 swh/scrubber/tests/test_init.py
 swh/scrubber/tests/test_journal_kafka.py

@@ -8,8 +8,9 @@
 import collections
 import contextlib
 import dataclasses
+import datetime
 import logging
-from typing import Iterable, Union
+from typing import Iterable, Optional, Tuple, Union
 
 from swh.core.statsd import Statsd
 from swh.journal.serializers import value_to_kafka
@@ -41,6 +42,43 @@ def storage_db(storage):
         yield db
     finally:
         storage.put_db(db)
+
+
+def _get_inclusive_range_swhids(
+    inclusive_range_start: Optional[bytes],
+    exclusive_range_end: Optional[bytes],
+    object_type: swhids.ObjectType,
+) -> Tuple[swhids.CoreSWHID, swhids.CoreSWHID]:
+    r"""
+    Given a ``[range_start, range_end)`` right-open interval of id prefixes
+    and an object type (as returned by :const:`swh.storage.backfill.RANGE_GENERATORS`),
+    returns a ``[range_start_swhid, range_end_swhid]`` closed interval of SWHIDs
+    suitable for the scrubber database.
+
+    >>> _get_inclusive_range_swhids(b"\x42", None, swhids.ObjectType.SNAPSHOT)
+    (CoreSWHID.from_string('swh:1:snp:4200000000000000000000000000000000000000'), CoreSWHID.from_string('swh:1:snp:ffffffffffffffffffffffffffffffffffffffff'))
+
+    >>> _get_inclusive_range_swhids(b"\x00", b"\x12\x34", swhids.ObjectType.REVISION)
+    (CoreSWHID.from_string('swh:1:rev:0000000000000000000000000000000000000000'), CoreSWHID.from_string('swh:1:rev:1233ffffffffffffffffffffffffffffffffffff'))
+
+    """  # noqa
+    range_start_swhid = swhids.CoreSWHID(
+        object_type=object_type,
+        object_id=(inclusive_range_start or b"").ljust(20, b"\00"),
+    )
+    if exclusive_range_end is None:
+        inclusive_range_end = b"\xff" * 20
+    else:
+        # convert "1230000000..." to "122fffffff..."
+        inclusive_range_end = (
+            int.from_bytes(exclusive_range_end.ljust(20, b"\x00"), "big") - 1
+        ).to_bytes(20, "big")
+    range_end_swhid = swhids.CoreSWHID(
+        object_type=object_type,
+        object_id=inclusive_range_end,
+    )
+
+    return (range_start_swhid, range_end_swhid)
 
 
 @dataclasses.dataclass
@@ -98,9 +136,35 @@ class StorageChecker:
             )
 
     def _check_postgresql(self, db):
+        object_type = getattr(swhids.ObjectType, self.object_type.upper())
         for range_start, range_end in backfill.RANGE_GENERATORS[self.object_type](
             self.start_object, self.end_object
         ):
+            (range_start_swhid, range_end_swhid) = _get_inclusive_range_swhids(
+                range_start, range_end, object_type
+            )
+
+            start_time = datetime.datetime.now(tz=datetime.timezone.utc)
+
+            # Currently, this matches range boundaries exactly, with no regard for
+            # ranges that contain or are contained by it.
+            last_check_time = self.db.checked_range_get_last_date(
+                self.datastore_info(),
+                range_start_swhid,
+                range_end_swhid,
+            )
+
+            if last_check_time is not None:
+                # TODO: re-check if 'last_check_time' was a long ago.
+                logger.debug(
+                    "Skipping processing of %s range %s to %s: already done at %s",
+                    self.object_type,
+                    backfill._format_range_bound(range_start),
+                    backfill._format_range_bound(range_end),
+                    last_check_time,
+                )
+                continue
+
             logger.debug(
                 "Processing %s range %s to %s",
                 self.object_type,
@@ -121,6 +185,13 @@ class StorageChecker:
                 "batch_duration_seconds", tags={"operation": "check_references"}
             ):
                 self.check_object_references(objects)
+
+            self.db.checked_range_upsert(
+                self.datastore_info(),
+                range_start_swhid,
+                range_end_swhid,
+                start_time,
+            )
 
     def check_object_hashes(self, objects: Iterable[ScrubbableObject]):
         """Recomputes hashes, and reports mismatches."""
