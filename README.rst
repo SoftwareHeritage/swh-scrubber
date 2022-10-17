@@ -20,6 +20,10 @@ the corrupt object.
 There is one "checker" for each datastore package: storage (postgresql and cassandra),
 journal (kafka), and objstorage.
 
+The journal is "crawled" using its native streaming; others are crawled by range,
+reusing swh-storage's backfiller utilities, and checkpointed from time to time
+to the scrubber's database (in the ``checked_range`` table).
+
 
 Recovery
 --------

@@ -9,6 +9,12 @@ alter table datastore add primary key using index datastore_pkey;
 
 create unique index concurrently datastore_package_class_instance on datastore(package, class, instance);
 
+-------------------------------------
+-- Checkpointing/progress tracking
+-------------------------------------
+
+create unique index concurrently checked_range_pkey on checked_range(datastore, range_start, range_end);
+alter table checked_range add primary key using index checked_range_pkey;
 
 -------------------------------------
 -- Inventory of objects with issues
