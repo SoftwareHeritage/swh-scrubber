@@ -1,4 +1,6 @@
 dulwich
+psycopg2
+tenacity
 swh.core[http]>=0.3
 swh.loader.git>=1.4.0
 swh.model>=5.0.0
