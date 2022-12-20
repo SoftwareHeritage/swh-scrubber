@@ -12,6 +12,9 @@ import datetime
 import logging
 from typing import Iterable, Optional, Tuple, Union
 
+import psycopg2
+import tenacity
+
 from swh.core.statsd import Statsd
 from swh.journal.serializers import value_to_kafka
 from swh.model import swhids
@@ -128,14 +131,13 @@ class StorageChecker:
         ``start_object`` and ``end_object``.
         """
         if isinstance(self.storage, PostgresqlStorage):
-            with storage_db(self.storage) as db:
-                return self._check_postgresql(db)
+            return self._check_postgresql()
         else:
             raise NotImplementedError(
                 f"StorageChecker(storage={self.storage!r}).check_storage()"
             )
 
-    def _check_postgresql(self, db):
+    def _check_postgresql(self):
         object_type = getattr(swhids.ObjectType, self.object_type.upper())
         for range_start, range_end in backfill.RANGE_GENERATORS[self.object_type](
             self.start_object, self.end_object
@@ -172,6 +174,27 @@ class StorageChecker:
                 backfill._format_range_bound(range_end),
             )
 
+            self._check_postgresql_range(object_type, range_start, range_end)
+
+            self.db.checked_range_upsert(
+                self.datastore_info(),
+                range_start_swhid,
+                range_end_swhid,
+                start_time,
+            )
+
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception_type(psycopg2.OperationalError),
+        wait=tenacity.wait_random_exponential(min=10, max=180),
+    )
+    def _check_postgresql_range(
+        self, object_type: swhids.ObjectType, range_start, range_end
+    ) -> None:
+        assert isinstance(
+            self.storage, PostgresqlStorage
+        ), f"_check_postgresql_range called with self.storage={self.storage!r}"
+
+        with storage_db(self.storage) as db:
             objects = backfill.fetch(
                 db, self.object_type, start=range_start, end=range_end
             )
@@ -185,13 +208,6 @@ class StorageChecker:
                 "batch_duration_seconds", tags={"operation": "check_references"}
             ):
                 self.check_object_references(objects)
-
-            self.db.checked_range_upsert(
-                self.datastore_info(),
-                range_start_swhid,
-                range_end_swhid,
-                start_time,
-            )
 
     def check_object_hashes(self, objects: Iterable[ScrubbableObject]):
         """Recomputes hashes, and reports mismatches."""
