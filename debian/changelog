@@ -1,3 +1,15 @@
+swh-scrubber (0.1.2-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 0.1.2     - (tagged by Valentin Lorentz
+    <vlorentz@softwareheritage.org> on 2022-12-20 10:42:49 +0100)
+  * Upstream changes:     - v0.1.2     - * docs: Include module indices
+    only when building standalone package doc     - * sql: Fix typos
+    detected by codespell     - * pre-commit, tox: Bump pre-commit,
+    codespell, black and flake8     - * storage_checker: Retry on
+    postgresql errors from swh-storage
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Tue, 20 Dec 2022 09:46:50 +0000
+
 swh-scrubber (0.1.1-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 0.1.1     - (tagged by Valentin Lorentz
