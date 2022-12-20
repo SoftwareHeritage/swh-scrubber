@@ -3,3 +3,5 @@
 # dependency lines, see https://pip.readthedocs.org/en/1.1/requirements.html
 
 dulwich
+psycopg2
+tenacity
