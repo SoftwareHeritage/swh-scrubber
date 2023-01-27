@@ -42,7 +42,7 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
                 cls: memory
 
         # for journal checkers only:
-        journal_client:
+        journal:
             # see https://docs.softwareheritage.org/devel/apidoc/swh.journal.client.html
             # for the full list of options
             sasl.mechanism: SCRAM-SHA-512
@@ -137,14 +137,14 @@ def scrubber_check_journal(ctx) -> None:
     """Reads a complete kafka journal, and reports corrupt objects to
     the scrubber DB."""
     conf = ctx.obj["config"]
-    if "journal_client" not in conf:
-        ctx.fail("You must have a journal_client configured in your config file.")
+    if "journal" not in conf:
+        ctx.fail("You must have a journal configured in your config file.")
 
     from .journal_checker import JournalChecker
 
     checker = JournalChecker(
         db=ctx.obj["db"],
-        journal_client=conf["journal_client"],
+        journal=conf["journal"],
     )
 
     checker.run()

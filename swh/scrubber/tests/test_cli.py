@@ -42,7 +42,7 @@ def invoke(
         == (kafka_consumer_group is None)
     )
     if kafka_server:
-        config["journal_client"] = dict(
+        config["journal"] = dict(
             cls="kafka",
             brokers=kafka_server,
             group_id=kafka_consumer_group,
@@ -106,7 +106,7 @@ def test_check_journal(
     get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
     JournalChecker.assert_called_once_with(
         db=scrubber_db,
-        journal_client={
+        journal={
             "brokers": kafka_server,
             "cls": "kafka",
             "group_id": kafka_consumer_group,
