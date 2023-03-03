@@ -21,7 +21,7 @@ def journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group):
         brokers=kafka_server,
         group_id=kafka_consumer_group,
         prefix=kafka_prefix,
-        stop_on_eof=True,
+        on_eof="stop",
     )
 
 

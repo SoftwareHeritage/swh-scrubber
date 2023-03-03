@@ -164,7 +164,7 @@ def scrubber_locate_origins(ctx, start_object: str, end_object: str):
     if "graph" not in conf:
         ctx.fail("You must have a graph configured in your config file.")
 
-    from swh.graph.client import RemoteGraphClient
+    from swh.graph.http_client import RemoteGraphClient
     from swh.model.model import CoreSWHID
     from swh.storage import get_storage
 
