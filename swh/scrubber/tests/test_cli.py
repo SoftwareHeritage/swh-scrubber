@@ -77,8 +77,9 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         db=scrubber_db,
         storage=StorageChecker.mock_calls[0][2]["storage"],
         object_type="snapshot",
-        start_object="0" * 40,
-        end_object="f" * 40,
+        start_partition_id=0,
+        end_partition_id=4096,
+        nb_partitions=4096,
     )
     assert storage_checker.method_calls == [call.run()]
 

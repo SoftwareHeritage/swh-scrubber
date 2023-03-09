@@ -1,4 +1,4 @@
-# Copyright (C) 2021-2022  The Software Heritage developers
+# Copyright (C) 2021-2023  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -27,7 +27,8 @@ from swh.model.model import (
     Snapshot,
     TargetType,
 )
-from swh.storage import backfill
+from swh.storage.algos.directory import directory_get_many
+from swh.storage.algos.snapshot import snapshot_get_all_branches
 from swh.storage.interface import StorageInterface
 from swh.storage.postgresql.storage import Storage as PostgresqlStorage
 
@@ -93,10 +94,15 @@ class StorageChecker:
     storage: StorageInterface
     object_type: str
     """``directory``/``revision``/``release``/``snapshot``"""
-    start_object: str
-    """minimum value of the hexdigest of the object's sha1."""
-    end_object: str
-    """maximum value of the hexdigest of the object's sha1."""
+    nb_partitions: int
+    """Number of partitions to split the whole set of objects into.
+    Must be a power of 2."""
+    start_partition_id: int
+    """First partition id to check (inclusive). Must be in the range [0, nb_partitions).
+    """
+    end_partition_id: int
+    """Last partition id to check (exclusive). Must be in the range
+    (start_partition_id, nb_partitions]"""
 
     _datastore = None
     _statsd = None
@@ -120,66 +126,58 @@ class StorageChecker:
 
     def statsd(self) -> Statsd:
         if self._statsd is None:
+            datastore = self.datastore_info()
             self._statsd = Statsd(
                 namespace="swh_scrubber",
-                constant_tags={"object_type": self.object_type},
+                constant_tags={
+                    "object_type": self.object_type,
+                    "nb_partitions": self.nb_partitions,
+                    "datastore_package": datastore.package,
+                    "datastore_cls": datastore.cls,
+                },
             )
         return self._statsd
 
-    def run(self):
-        """Runs on all objects of ``object_type`` and with id between
-        ``start_object`` and ``end_object``.
+    def run(self) -> None:
+        """Runs on all objects of ``object_type`` in a partition between
+        ``start_partition_id`` (inclusive) and ``end_partition_id`` (exclusive)
         """
-        if isinstance(self.storage, PostgresqlStorage):
-            return self._check_postgresql()
-        else:
-            raise NotImplementedError(
-                f"StorageChecker(storage={self.storage!r}).check_storage()"
-            )
-
-    def _check_postgresql(self):
         object_type = getattr(swhids.ObjectType, self.object_type.upper())
-        for range_start, range_end in backfill.RANGE_GENERATORS[self.object_type](
-            self.start_object, self.end_object
-        ):
-            (range_start_swhid, range_end_swhid) = _get_inclusive_range_swhids(
-                range_start, range_end, object_type
-            )
+        for partition_id in range(self.start_partition_id, self.end_partition_id):
 
             start_time = datetime.datetime.now(tz=datetime.timezone.utc)
 
             # Currently, this matches range boundaries exactly, with no regard for
             # ranges that contain or are contained by it.
-            last_check_time = self.db.checked_range_get_last_date(
-                self.datastore_info(),
-                range_start_swhid,
-                range_end_swhid,
+            last_check_time = self.db.checked_partition_get_last_date(
+                self.datastore_info(), object_type, partition_id, self.nb_partitions
             )
 
             if last_check_time is not None:
                 # TODO: re-check if 'last_check_time' was a long ago.
                 logger.debug(
-                    "Skipping processing of %s range %s to %s: already done at %s",
+                    "Skipping processing of %s partition %d/%d: already done at %s",
                     self.object_type,
-                    backfill._format_range_bound(range_start),
-                    backfill._format_range_bound(range_end),
+                    partition_id,
+                    self.nb_partitions,
                     last_check_time,
                 )
                 continue
 
             logger.debug(
-                "Processing %s range %s to %s",
+                "Processing %s partition %d/%d",
                 self.object_type,
-                backfill._format_range_bound(range_start),
-                backfill._format_range_bound(range_end),
+                partition_id,
+                self.nb_partitions,
             )
 
-            self._check_postgresql_range(object_type, range_start, range_end)
+            self._check_partition(object_type, partition_id)
 
-            self.db.checked_range_upsert(
+            self.db.checked_partition_upsert(
                 self.datastore_info(),
-                range_start_swhid,
-                range_end_swhid,
+                object_type,
+                partition_id,
+                self.nb_partitions,
                 start_time,
             )
 
@@ -187,18 +185,32 @@ class StorageChecker:
         retry=tenacity.retry_if_exception_type(psycopg2.OperationalError),
         wait=tenacity.wait_random_exponential(min=10, max=180),
     )
-    def _check_postgresql_range(
-        self, object_type: swhids.ObjectType, range_start, range_end
+    def _check_partition(
+        self, object_type: swhids.ObjectType, partition_id: int
     ) -> None:
-        assert isinstance(
-            self.storage, PostgresqlStorage
-        ), f"_check_postgresql_range called with self.storage={self.storage!r}"
-
-        with storage_db(self.storage) as db:
-            objects = backfill.fetch(
-                db, self.object_type, start=range_start, end=range_end
-            )
-            objects = list(objects)
+        page_token = None
+        while True:
+            if object_type in (swhids.ObjectType.RELEASE, swhids.ObjectType.REVISION):
+                method = getattr(self.storage, f"{self.object_type}_get_partition")
+                page = method(partition_id, self.nb_partitions, page_token=page_token)
+                objects = page.results
+            elif object_type == swhids.ObjectType.DIRECTORY:
+                page = self.storage.directory_get_id_partition(
+                    partition_id, self.nb_partitions, page_token=page_token
+                )
+                directory_ids = page.results
+                objects = list(directory_get_many(self.storage, directory_ids))
+            elif object_type == swhids.ObjectType.SNAPSHOT:
+                page = self.storage.snapshot_get_id_partition(
+                    partition_id, self.nb_partitions, page_token=page_token
+                )
+                snapshot_ids = page.results
+                objects = [
+                    snapshot_get_all_branches(self.storage, snapshot_id)
+                    for snapshot_id in snapshot_ids
+                ]
+            else:
+                assert False, f"Unexpected object type: {object_type}"
 
             with self.statsd().timed(
                 "batch_duration_seconds", tags={"operation": "check_hashes"}
@@ -208,6 +220,10 @@ class StorageChecker:
                 "batch_duration_seconds", tags={"operation": "check_references"}
             ):
                 self.check_object_references(objects)
+
+            page_token = page.next_page_token
+            if page_token is None:
+                break
 
     def check_object_hashes(self, objects: Iterable[ScrubbableObject]):
         """Recomputes hashes, and reports mismatches."""
