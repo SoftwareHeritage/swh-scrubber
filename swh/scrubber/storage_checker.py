@@ -9,6 +9,7 @@ import collections
 import contextlib
 import dataclasses
 import datetime
+import json
 import logging
 from typing import Iterable, Optional, Tuple, Union
 
@@ -29,6 +30,7 @@ from swh.model.model import (
 )
 from swh.storage.algos.directory import directory_get_many
 from swh.storage.algos.snapshot import snapshot_get_all_branches
+from swh.storage.cassandra.storage import CassandraStorage
 from swh.storage.interface import StorageInterface
 from swh.storage.postgresql.storage import Storage as PostgresqlStorage
 
@@ -40,7 +42,7 @@ ScrubbableObject = Union[Revision, Release, Snapshot, Directory, Content]
 
 
 @contextlib.contextmanager
-def storage_db(storage):
+def postgresql_storage_db(storage):
     db = storage.get_db()
     try:
         yield db
@@ -112,12 +114,24 @@ class StorageChecker:
         being checked."""
         if self._datastore is None:
             if isinstance(self.storage, PostgresqlStorage):
-                with storage_db(self.storage) as db:
+                with postgresql_storage_db(self.storage) as db:
                     self._datastore = Datastore(
                         package="storage",
                         cls="postgresql",
                         instance=db.conn.dsn,
                     )
+            elif isinstance(self.storage, CassandraStorage):
+                self._datastore = Datastore(
+                    package="storage",
+                    cls="cassandra",
+                    instance=json.dumps(
+                        {
+                            "keyspace": self.storage.keyspace,
+                            "hosts": self.storage.hosts,
+                            "port": self.storage.port,
+                        }
+                    ),
+                )
             else:
                 raise NotImplementedError(
                     f"StorageChecker(storage={self.storage!r}).datastore()"

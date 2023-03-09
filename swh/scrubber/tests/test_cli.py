@@ -11,7 +11,7 @@ import yaml
 
 from swh.model.swhids import CoreSWHID
 from swh.scrubber.cli import scrubber_cli_group
-from swh.scrubber.storage_checker import storage_db
+from swh.scrubber.storage_checker import postgresql_storage_db
 
 
 def invoke(
@@ -29,7 +29,7 @@ def invoke(
         "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
-        with storage_db(storage) as db:
+        with postgresql_storage_db(storage) as db:
             config["storage"] = {
                 "cls": "postgresql",
                 "db": db.conn.dsn,
