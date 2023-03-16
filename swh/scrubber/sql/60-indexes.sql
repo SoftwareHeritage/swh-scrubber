@@ -13,7 +13,7 @@ create unique index concurrently datastore_package_class_instance on datastore(p
 -- Checkpointing/progress tracking
 -------------------------------------
 
-create unique index concurrently checked_partition_pkey on checked_partition(datastore, object_type, partition_id, nb_partitions);
+create unique index concurrently checked_partition_pkey on checked_partition(datastore, object_type, nb_partitions, partition_id);
 alter table checked_partition add primary key using index checked_partition_pkey;
 
 -------------------------------------
