@@ -3,24 +3,30 @@
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
 
+import json
+
 import pytest
 
 from swh.scrubber.db import Datastore
-from swh.scrubber.storage_checker import postgresql_storage_db
 
 from .storage_checker_tests import *  # noqa
 
 
 @pytest.fixture
-def swh_storage_backend_config(swh_storage_postgresql_backend_config):
-    return swh_storage_postgresql_backend_config
+def swh_storage_backend_config(swh_storage_cassandra_backend_config):
+    return swh_storage_cassandra_backend_config
 
 
 @pytest.fixture
 def datastore(swh_storage):
-    with postgresql_storage_db(swh_storage) as db:
-        return Datastore(
-            package="storage",
-            cls="postgresql",
-            instance=db.conn.dsn,
-        )
+    return Datastore(
+        package="storage",
+        cls="cassandra",
+        instance=json.dumps(
+            {
+                "keyspace": swh_storage.keyspace,
+                "hosts": swh_storage.hosts,
+                "port": swh_storage.port,
+            }
+        ),
+    )

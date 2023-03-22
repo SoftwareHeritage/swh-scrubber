@@ -14,7 +14,7 @@ from typing import Iterable, Union
 import psycopg2
 
 from swh.core.utils import grouper
-from swh.graph.client import GraphArgumentException, RemoteGraphClient
+from swh.graph.http_client import GraphArgumentException, RemoteGraphClient
 from swh.model.model import Directory, Release, Revision, Snapshot
 from swh.model.swhids import CoreSWHID, ExtendedSWHID
 from swh.storage.interface import StorageInterface

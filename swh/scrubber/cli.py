@@ -42,7 +42,7 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
                 cls: memory
 
         # for journal checkers only:
-        journal_client:
+        journal:
             # see https://docs.softwareheritage.org/devel/apidoc/swh.journal.client.html
             # for the full list of options
             sasl.mechanism: SCRAM-SHA-512
@@ -107,11 +107,43 @@ def scrubber_check_cli_group(ctx):
         ]
     ),
 )
-@click.option("--start-object", default="00" * 20)
-@click.option("--end-object", default="ff" * 20)
+@click.option("--start-partition-id", default=0, type=int)
+@click.option("--end-partition-id", default=4096, type=int)
+@click.option("--nb-partitions", default=4096, type=int)
 @click.pass_context
-def scrubber_check_storage(ctx, object_type: str, start_object: str, end_object: str):
-    """Reads a postgresql storage, and reports corrupt objects to the scrubber DB."""
+def scrubber_check_storage(
+    ctx,
+    object_type: str,
+    start_partition_id: int,
+    end_partition_id: int,
+    nb_partitions: int,
+):
+    """Reads a swh-storage instance, and reports corrupt objects to the scrubber DB.
+
+    This runs a single thread; parallelism is achieved by running this command multiple
+    times, on disjoint ranges.
+
+    All objects of type ``object_type`` are ordered, and split into the given number
+    of partitions. When running in parallel, the number of partitions should be the
+    same for all workers or they may work on overlapping or non-exhaustive ranges.
+
+    Then, this process will check all partitions in the given
+    ``[start_partition_id, end_partition_id)`` range. When running in parallel, these
+    ranges should be set so that processes over the whole ``[0, nb_partitions)`` range.
+
+    For example in order to have 8 threads checking revisions in parallel and with 64k
+    checkpoints (to recover on crashes), the CLI should be ran 8 times with these
+    parameters::
+
+        --object-type revision --nb-partitions 65536 --start-partition-id 0 --end-partition-id 8192
+        --object-type revision --nb-partitions 65536 --start-partition-id 8192 --end-partition-id 16384
+        --object-type revision --nb-partitions 65536 --start-partition-id 16384 --end-partition-id 24576
+        --object-type revision --nb-partitions 65536 --start-partition-id 24576 --end-partition-id 32768
+        --object-type revision --nb-partitions 65536 --start-partition-id 32768 --end-partition-id 40960
+        --object-type revision --nb-partitions 65536 --start-partition-id 40960 --end-partition-id 49152
+        --object-type revision --nb-partitions 65536 --start-partition-id 49152 --end-partition-id 57344
+        --object-type revision --nb-partitions 65536 --start-partition-id 57344 --end-partition-id 65536
+    """  # noqa
     conf = ctx.obj["config"]
     if "storage" not in conf:
         ctx.fail("You must have a storage configured in your config file.")
@@ -124,8 +156,9 @@ def scrubber_check_storage(ctx, object_type: str, start_object: str, end_object:
         db=ctx.obj["db"],
         storage=get_storage(**conf["storage"]),
         object_type=object_type,
-        start_object=start_object,
-        end_object=end_object,
+        start_partition_id=start_partition_id,
+        end_partition_id=end_partition_id,
+        nb_partitions=nb_partitions,
     )
 
     checker.run()
@@ -137,14 +170,14 @@ def scrubber_check_journal(ctx) -> None:
     """Reads a complete kafka journal, and reports corrupt objects to
     the scrubber DB."""
     conf = ctx.obj["config"]
-    if "journal_client" not in conf:
-        ctx.fail("You must have a journal_client configured in your config file.")
+    if "journal" not in conf:
+        ctx.fail("You must have a journal configured in your config file.")
 
     from .journal_checker import JournalChecker
 
     checker = JournalChecker(
         db=ctx.obj["db"],
-        journal_client=conf["journal_client"],
+        journal=conf["journal"],
     )
 
     checker.run()
@@ -164,7 +197,7 @@ def scrubber_locate_origins(ctx, start_object: str, end_object: str):
     if "graph" not in conf:
         ctx.fail("You must have a graph configured in your config file.")
 
-    from swh.graph.client import RemoteGraphClient
+    from swh.graph.http_client import RemoteGraphClient
     from swh.model.model import CoreSWHID
     from swh.storage import get_storage
 

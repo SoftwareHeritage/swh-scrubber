@@ -21,7 +21,7 @@ def journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group):
         brokers=kafka_server,
         group_id=kafka_consumer_group,
         prefix=kafka_prefix,
-        stop_on_eof=True,
+        on_eof="stop",
     )
 
 
@@ -44,9 +44,7 @@ def test_no_corruption(scrubber_db, kafka_server, kafka_prefix, kafka_consumer_g
 
     JournalChecker(
         db=scrubber_db,
-        journal_client=journal_client_config(
-            kafka_server, kafka_prefix, kafka_consumer_group
-        ),
+        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
     ).run()
 
     assert list(scrubber_db.corrupt_object_iter()) == []
@@ -65,9 +63,7 @@ def test_corrupt_snapshot(
     before_date = datetime.datetime.now(tz=datetime.timezone.utc)
     JournalChecker(
         db=scrubber_db,
-        journal_client=journal_client_config(
-            kafka_server, kafka_prefix, kafka_consumer_group
-        ),
+        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
     ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -104,9 +100,7 @@ def test_corrupt_snapshots(
 
     JournalChecker(
         db=scrubber_db,
-        journal_client=journal_client_config(
-            kafka_server, kafka_prefix, kafka_consumer_group
-        ),
+        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
     ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
