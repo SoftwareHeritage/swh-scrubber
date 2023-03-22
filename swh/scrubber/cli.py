@@ -130,7 +130,20 @@ def scrubber_check_storage(
     Then, this process will check all partitions in the given
     ``[start_partition_id, end_partition_id)`` range. When running in parallel, these
     ranges should be set so that processes over the whole ``[0, nb_partitions)`` range.
-    """
+
+    For example in order to have 8 threads checking revisions in parallel and with 64k
+    checkpoints (to recover on crashes), the CLI should be ran 8 times with these
+    parameters::
+
+        --object-type revision --nb-partitions 65536 --start-partition-id 0 --end-partition-id 8192
+        --object-type revision --nb-partitions 65536 --start-partition-id 8192 --end-partition-id 16384
+        --object-type revision --nb-partitions 65536 --start-partition-id 16384 --end-partition-id 24576
+        --object-type revision --nb-partitions 65536 --start-partition-id 24576 --end-partition-id 32768
+        --object-type revision --nb-partitions 65536 --start-partition-id 32768 --end-partition-id 40960
+        --object-type revision --nb-partitions 65536 --start-partition-id 40960 --end-partition-id 49152
+        --object-type revision --nb-partitions 65536 --start-partition-id 49152 --end-partition-id 57344
+        --object-type revision --nb-partitions 65536 --start-partition-id 57344 --end-partition-id 65536
+    """  # noqa
     conf = ctx.obj["config"]
     if "storage" not in conf:
         ctx.fail("You must have a storage configured in your config file.")
