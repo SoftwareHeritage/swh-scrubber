@@ -1,3 +1,11 @@
+swh-scrubber (1.0.1-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 1.0.1     - (tagged by Valentin Lorentz
+    <vlorentz@softwareheritage.org> on 2023-03-22 10:52:16 +0100)
+  * Upstream changes:     - v1.0.1     - * docs: Add CLI
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Wed, 22 Mar 2023 09:56:36 +0000
+
 swh-scrubber (1.0.0-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 1.0.0     - (tagged by Valentin Lorentz
