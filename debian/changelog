@@ -1,3 +1,16 @@
+swh-scrubber (1.0.0-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 1.0.0     - (tagged by Valentin Lorentz
+    <vlorentz@softwareheritage.org> on 2023-03-22 10:13:03 +0100)
+  * Upstream changes:     - v1.0.0     - * Add support for checking swh-
+    storage backed by Cassandra:     - * Use '*_get_partition' endpoints
+    instead of querying postgres directly     - * Change the SWHID range-
+    based CLI and DB schema with opaque     - partition ids     - * Fix
+    deprecation warnings, bumplinters     - * cli: Rename config key
+    'journal_client' to 'journal'
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Wed, 22 Mar 2023 09:18:26 +0000
+
 swh-scrubber (0.1.2-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 0.1.2     - (tagged by Valentin Lorentz
