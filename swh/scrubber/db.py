@@ -60,7 +60,7 @@ class FixedObject:
 
 
 class ScrubberDb(BaseDb):
-    current_version = 4
+    current_version = 5
 
     ####################################
     # Shared tables
