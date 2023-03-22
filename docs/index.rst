@@ -6,6 +6,8 @@
    :maxdepth: 2
    :caption: Contents:
 
+   cli
+
 
 .. only:: standalone_package_doc
 
