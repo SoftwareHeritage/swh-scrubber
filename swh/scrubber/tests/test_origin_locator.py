@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from swh.graph.naive_client import NaiveClient as NaiveGraphClient
+from swh.graph.http_naive_client import NaiveClient as NaiveGraphClient
 from swh.model.model import Origin
 from swh.model.swhids import CoreSWHID
 from swh.scrubber.db import CorruptObject, Datastore

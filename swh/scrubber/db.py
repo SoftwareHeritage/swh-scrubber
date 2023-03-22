@@ -12,7 +12,7 @@ from typing import Iterable, Iterator, List, Optional, Tuple
 import psycopg2
 
 from swh.core.db import BaseDb
-from swh.model.swhids import CoreSWHID
+from swh.model.swhids import CoreSWHID, ObjectType
 
 
 @dataclasses.dataclass(frozen=True)
@@ -60,7 +60,7 @@ class FixedObject:
 
 
 class ScrubberDb(BaseDb):
-    current_version = 4
+    current_version = 5
 
     ####################################
     # Shared tables
@@ -102,47 +102,63 @@ class ScrubberDb(BaseDb):
     # Checkpointing/progress tracking
     ####################################
 
-    def checked_range_upsert(
+    def checked_partition_upsert(
         self,
         datastore: Datastore,
-        range_start: CoreSWHID,
-        range_end: CoreSWHID,
+        object_type: ObjectType,
+        partition_id: int,
+        nb_partitions: int,
         date: datetime.datetime,
     ) -> None:
         """
-        Records in the database the given range was last checked at the given date.
+        Records in the database the given partition was last checked at the given date.
         """
         datastore_id = self.datastore_get_or_add(datastore)
         with self.transaction() as cur:
             cur.execute(
                 """
-                INSERT INTO checked_range(datastore, range_start, range_end, last_date)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (datastore, range_start, range_end) DO UPDATE
-                    SET last_date = GREATEST(checked_range.last_date, EXCLUDED.last_date)
+                INSERT INTO checked_partition(
+                    datastore, object_type, partition_id, nb_partitions, last_date
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (datastore, object_type, partition_id, nb_partitions)
+                    DO UPDATE
+                    SET last_date = GREATEST(
+                        checked_partition.last_date, EXCLUDED.last_date
+                    )
                 """,
-                (datastore_id, str(range_start), str(range_end), date),
+                (
+                    datastore_id,
+                    object_type.name.lower(),
+                    partition_id,
+                    nb_partitions,
+                    date,
+                ),
             )
 
-    def checked_range_get_last_date(
-        self, datastore: Datastore, range_start: CoreSWHID, range_end: CoreSWHID
+    def checked_partition_get_last_date(
+        self,
+        datastore: Datastore,
+        object_type: ObjectType,
+        partition_id: int,
+        nb_partitions: int,
     ) -> Optional[datetime.datetime]:
         """
-        Returns the last date the given range was checked in the given datastore,
+        Returns the last date the given partition was checked in the given datastore,
         or :const:`None` if it was never checked.
 
-        Currently, this matches range boundaries exactly, with no regard for
-        ranges that contain or are contained by it.
+        Currently, this matches partition id and number exactly, with no regard for
+        partitions that contain or are contained by it.
         """
         datastore_id = self.datastore_get_or_add(datastore)
         with self.transaction() as cur:
             cur.execute(
                 """
                 SELECT last_date
-                FROM checked_range
-                WHERE datastore=%s AND range_start=%s AND range_end=%s
+                FROM checked_partition
+                WHERE datastore=%s AND object_type=%s AND partition_id=%s AND nb_partitions=%s
                 """,
-                (datastore_id, str(range_start), str(range_end)),
+                (datastore_id, object_type.name.lower(), partition_id, nb_partitions),
             )
 
             res = cur.fetchone()
@@ -152,26 +168,23 @@ class ScrubberDb(BaseDb):
                 (date,) = res
                 return date
 
-    def checked_range_iter(
+    def checked_partition_iter(
         self, datastore: Datastore
-    ) -> Iterator[Tuple[CoreSWHID, CoreSWHID, datetime.datetime]]:
+    ) -> Iterator[Tuple[ObjectType, int, int, datetime.datetime]]:
+        """Yields tuples of ``(partition_id, nb_partitions, last_date)``"""
         datastore_id = self.datastore_get_or_add(datastore)
         with self.transaction() as cur:
             cur.execute(
                 """
-                SELECT range_start, range_end, last_date
-                FROM checked_range
+                SELECT object_type, partition_id, nb_partitions, last_date
+                FROM checked_partition
                 WHERE datastore=%s
                 """,
                 (datastore_id,),
             )
 
-            for (range_start, range_end, last_date) in cur:
-                yield (
-                    CoreSWHID.from_string(range_start),
-                    CoreSWHID.from_string(range_end),
-                    last_date,
-                )
+            for (object_type, *rest) in cur:
+                yield (getattr(ObjectType, object_type.upper()), *rest)  # type: ignore[misc]
 
     ####################################
     # Inventory of objects with issues
