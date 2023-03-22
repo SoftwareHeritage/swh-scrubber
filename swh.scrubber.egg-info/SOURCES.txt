@@ -21,6 +21,7 @@ tox.ini
 docs/.gitignore
 docs/Makefile
 docs/README.rst
+docs/cli.rst
 docs/conf.py
 docs/index.rst
 docs/_static/.placeholder
