@@ -23,11 +23,11 @@ class JournalChecker:
 
     _datastore = None
 
-    def __init__(self, db: ScrubberDb, journal_client: Dict[str, Any]):
+    def __init__(self, db: ScrubberDb, journal: Dict[str, Any]):
         self.db = db
-        self.journal_client_config = journal_client
+        self.journal_client_config = journal
         self.journal_client = get_journal_client(
-            **journal_client,
+            **journal,
             # Remove default deserializer; so process_kafka_values() gets the message
             # verbatim so it can archive it with as few modifications a possible.
             value_deserializer=lambda obj_type, msg: msg,

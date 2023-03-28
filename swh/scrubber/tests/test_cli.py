@@ -11,7 +11,7 @@ import yaml
 
 from swh.model.swhids import CoreSWHID
 from swh.scrubber.cli import scrubber_cli_group
-from swh.scrubber.storage_checker import storage_db
+from swh.scrubber.storage_checker import postgresql_storage_db
 
 
 def invoke(
@@ -29,7 +29,7 @@ def invoke(
         "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
-        with storage_db(storage) as db:
+        with postgresql_storage_db(storage) as db:
             config["storage"] = {
                 "cls": "postgresql",
                 "db": db.conn.dsn,
@@ -42,7 +42,7 @@ def invoke(
         == (kafka_consumer_group is None)
     )
     if kafka_server:
-        config["journal_client"] = dict(
+        config["journal"] = dict(
             cls="kafka",
             brokers=kafka_server,
             group_id=kafka_consumer_group,
@@ -77,8 +77,9 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         db=scrubber_db,
         storage=StorageChecker.mock_calls[0][2]["storage"],
         object_type="snapshot",
-        start_object="0" * 40,
-        end_object="f" * 40,
+        start_partition_id=0,
+        end_partition_id=4096,
+        nb_partitions=4096,
     )
     assert storage_checker.method_calls == [call.run()]
 
@@ -106,7 +107,7 @@ def test_check_journal(
     get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
     JournalChecker.assert_called_once_with(
         db=scrubber_db,
-        journal_client={
+        journal={
             "brokers": kafka_server,
             "cls": "kafka",
             "group_id": kafka_consumer_group,

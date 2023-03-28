@@ -23,18 +23,20 @@ comment on column datastore.instance is 'Human-readable way to uniquely identify
 -- Checkpointing/progress tracking
 -------------------------------------
 
-create table checked_range
+create table checked_partition
 (
   datastore             int not null,
-  range_start           swhid not null,
-  range_end             swhid not null,
+  object_type           object_type not null,
+  partition_id          bigint not null,
+  nb_partitions         bigint not null,
   last_date             timestamptz not null
 );
 
-comment on table checked_range is 'Each row represents a range of objects in a datastore that were fetched, checksummed, and checked at some point in the past.';
-comment on column checked_range.range_start is 'First SWHID of the range that was checked (inclusive, possibly non-existent).';
-comment on column checked_range.range_end is 'Last SWHID of the range that was checked (inclusive, possiby non-existent).';
-comment on column checked_range.last_date is 'Date the last scrub of that range *started*.';
+comment on table checked_partition is 'Each row represents a range of objects in a datastore that were fetched, checksummed, and checked at some point in the past. The whole set of objects of the given type is split into nb_partitions and partition_id is a value from 0 to nb_partitions-1.';
+comment on column checked_partition.object_type is 'The type of tested objects.';
+comment on column checked_partition.partition_id is 'Index of the partition to fetch';
+comment on column checked_partition.nb_partitions is 'Number of partitions the set of objects is split into.';
+comment on column checked_partition.last_date is 'Date the last scrub of this partition *started*.';
 
 -------------------------------------
 -- Inventory of objects with issues

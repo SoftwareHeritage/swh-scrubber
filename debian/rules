@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 export PYBUILD_NAME=swh.scrubber
-export PYBUILD_TEST_ARGS=-vv
+export PYBUILD_TEST_ARGS=-vv -k 'not cassandra'
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild

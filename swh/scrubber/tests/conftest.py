@@ -8,7 +8,7 @@ from functools import partial
 import pytest
 from pytest_postgresql import factories
 
-from swh.core.db.pytest_plugin import initialize_database_for_module
+from swh.core.db.db_utils import initialize_database_for_module
 from swh.scrubber.db import ScrubberDb
 
 scrubber_postgresql_proc = factories.postgresql_proc(
