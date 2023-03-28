@@ -5,10 +5,13 @@
 
 
 -- Was corrupted in prod, so we lost the existing data anyway
-drop table checked_range;
+drop table if exists checked_range;
 
-
-
+DO $$ BEGIN
+    create type object_type as enum ('content', 'directory', 'revision', 'release', 'snapshot', 'extid', 'raw_extrinsic_metadata');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 create table checked_partition
 (
