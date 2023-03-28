@@ -1,3 +1,12 @@
+swh-scrubber (1.0.2-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 1.0.2     - (tagged by Nicolas Dandrimont
+    <nicolas@dandrimont.eu> on 2023-03-28 15:11:51 +0200)
+  * Upstream changes:     - Release swh.scrubber v1.0.2     - Fix 5.sql
+    upgrade script
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Tue, 28 Mar 2023 13:16:26 +0000
+
 swh-scrubber (1.0.1-2~swh1) unstable-swh; urgency=medium
 
   * Skip cassandra tests
