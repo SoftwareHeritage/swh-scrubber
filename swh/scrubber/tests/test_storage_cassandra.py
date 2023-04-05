@@ -30,3 +30,11 @@ def datastore(swh_storage):
             }
         ),
     )
+
+
+@pytest.mark.skip(  # type: ignore[no-redef]
+    "Duplicate directory entries are not representable in Cassandra, "
+    "so this feature is irrelevant"
+)
+def test_directory_duplicate_entries():
+    pass
