@@ -28,7 +28,9 @@ from swh.model.model import (
     Snapshot,
     TargetType,
 )
-from swh.storage.algos.directory import directory_get_many
+from swh.storage.algos.directory import (
+    directory_get_many_with_possibly_duplicated_entries,
+)
 from swh.storage.algos.snapshot import snapshot_get_all_branches
 from swh.storage.cassandra.storage import CassandraStorage
 from swh.storage.interface import StorageInterface
@@ -213,7 +215,23 @@ class StorageChecker:
                     partition_id, self.nb_partitions, page_token=page_token
                 )
                 directory_ids = page.results
-                objects = list(directory_get_many(self.storage, directory_ids))
+                objects = []
+                for (dir_id, item) in zip(
+                    directory_ids,
+                    directory_get_many_with_possibly_duplicated_entries(
+                        self.storage, directory_ids
+                    ),
+                ):
+                    assert item is not None, f"Directory {dir_id.hex()} disappeared"
+                    (has_duplicate_entries, object_) = item
+                    if has_duplicate_entries:
+                        self.statsd().increment("duplicate_directory_entries_total")
+                        self.db.corrupt_object_add(
+                            object_.swhid(),
+                            self.datastore_info(),
+                            value_to_kafka(object_.to_dict()),
+                        )
+                    objects.append(object_)
             elif object_type == swhids.ObjectType.SNAPSHOT:
                 page = self.storage.snapshot_get_id_partition(
                     partition_id, self.nb_partitions, page_token=page_token

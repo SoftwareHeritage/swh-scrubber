@@ -6,6 +6,7 @@
 import datetime
 
 import attr
+import msgpack
 import pytest
 
 from swh.journal.serializers import kafka_to_value
@@ -220,6 +221,71 @@ def test_corrupt_snapshots_different_batches(scrubber_db, datastore, swh_storage
         scrubber_db,
         datastore,
         {(swhids.ObjectType.SNAPSHOT, 0, 2), (swhids.ObjectType.SNAPSHOT, 1, 2)},
+    )
+
+
+def test_directory_duplicate_entries(scrubber_db, datastore, swh_storage):
+    run_validators = attr.get_run_validators()
+    attr.set_run_validators(False)
+    try:
+        invalid_directory = model.Directory(
+            entries=(
+                model.DirectoryEntry(
+                    name=b"foo", type="dir", target=b"\x01" * 20, perms=1
+                ),
+                model.DirectoryEntry(
+                    name=b"foo", type="file", target=b"\x00" * 20, perms=0
+                ),
+            )
+        )
+    finally:
+        attr.set_run_validators(run_validators)
+    swh_storage.directory_add([invalid_directory])
+
+    deduplicated_directory = model.Directory(
+        id=invalid_directory.id,
+        entries=(
+            model.DirectoryEntry(name=b"foo", type="dir", target=b"\x01" * 20, perms=1),
+            model.DirectoryEntry(
+                name=b"foo_0000000000", type="file", target=b"\x00" * 20, perms=0
+            ),
+        ),
+        raw_manifest=(
+            # fmt: off
+            b"tree 52\x00"
+            + b"0 foo\x00" + b"\x00" * 20
+            + b"1 foo\x00" + b"\x01" * 20
+            # fmt: on
+        ),
+    )
+
+    before_date = datetime.datetime.now(tz=datetime.timezone.utc)
+    for object_type in ("snapshot", "release", "revision", "directory"):
+        StorageChecker(
+            db=scrubber_db,
+            storage=swh_storage,
+            object_type=object_type,
+            start_partition_id=0,
+            end_partition_id=1,
+            nb_partitions=1,
+        ).run()
+    after_date = datetime.datetime.now(tz=datetime.timezone.utc)
+
+    corrupt_objects = list(scrubber_db.corrupt_object_iter())
+    assert len(corrupt_objects) == 1
+    assert corrupt_objects[0].id == invalid_directory.swhid()
+    assert corrupt_objects[0].datastore == datastore
+    assert (
+        before_date - datetime.timedelta(seconds=5)
+        <= corrupt_objects[0].first_occurrence
+        <= after_date + datetime.timedelta(seconds=5)
+    )
+    assert kafka_to_value(corrupt_objects[0].object_) == msgpack.loads(
+        msgpack.dumps(deduplicated_directory.to_dict())  # turn entry list into tuple
+    )
+
+    assert_checked_ranges(
+        scrubber_db, datastore, EXPECTED_PARTITIONS, before_date, after_date
     )
 
 
