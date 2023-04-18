@@ -1,3 +1,12 @@
+swh-scrubber (1.0.3-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 1.0.3     - (tagged by Valentin Lorentz
+    <vlorentz@softwareheritage.org> on 2023-04-18 17:45:40 +0200)
+  * Upstream changes:     - v1.0.3     - * storage_checker: Fix crash on
+    directory with duplicate entries
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Tue, 18 Apr 2023 15:50:23 +0000
+
 swh-scrubber (1.0.2-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 1.0.2     - (tagged by Nicolas Dandrimont
