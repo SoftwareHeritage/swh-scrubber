@@ -60,7 +60,7 @@ class FixedObject:
 
 
 class ScrubberDb(BaseDb):
-    current_version = 5
+    current_version = 6
 
     ####################################
     # Shared tables
@@ -98,6 +98,45 @@ class ScrubberDb(BaseDb):
             (id_,) = res
             return id_
 
+    @functools.lru_cache(1000)
+    def config_get_or_add(
+        self, datastore: Datastore, object_type: ObjectType, nb_partitions: int
+    ) -> int:
+        """Creates a configuration entry (and a datastore) if it does not exist, and returns its id."""
+        datastore_id = self.datastore_get_or_add(datastore)
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                WITH inserted AS (
+                    INSERT INTO check_config (datastore, object_type, nb_partitions)
+                    VALUES (%(datastore_id)s, %(object_type)s, %(nb_partitions)s)
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                )
+                SELECT id
+                FROM inserted
+                UNION (
+                    -- If the datastore already exists, we need to fetch its id
+                    SELECT id
+                    FROM check_config
+                    WHERE
+                        datastore=%(datastore_id)s
+                        AND object_type=%(object_type)s
+                        AND nb_partitions=%(nb_partitions)s
+                )
+                LIMIT 1
+                """,
+                {
+                    "datastore_id": datastore_id,
+                    "object_type": object_type.name.lower(),
+                    "nb_partitions": nb_partitions,
+                },
+            )
+            res = cur.fetchone()
+            assert res is not None
+            (id_,) = res
+            return id_
+
     ####################################
     # Checkpointing/progress tracking
     ####################################
@@ -113,25 +152,21 @@ class ScrubberDb(BaseDb):
         """
         Records in the database the given partition was last checked at the given date.
         """
-        datastore_id = self.datastore_get_or_add(datastore)
+        config_id = self.config_get_or_add(datastore, object_type, nb_partitions)
         with self.transaction() as cur:
             cur.execute(
                 """
-                INSERT INTO checked_partition(
-                    datastore, object_type, partition_id, nb_partitions, last_date
-                )
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (datastore, object_type, partition_id, nb_partitions)
+                INSERT INTO checked_partition(config_id, partition_id, last_date)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (config_id, partition_id)
                     DO UPDATE
                     SET last_date = GREATEST(
                         checked_partition.last_date, EXCLUDED.last_date
                     )
                 """,
                 (
-                    datastore_id,
-                    object_type.name.lower(),
+                    config_id,
                     partition_id,
-                    nb_partitions,
                     date,
                 ),
             )
@@ -150,15 +185,15 @@ class ScrubberDb(BaseDb):
         Currently, this matches partition id and number exactly, with no regard for
         partitions that contain or are contained by it.
         """
-        datastore_id = self.datastore_get_or_add(datastore)
+        config_id = self.config_get_or_add(datastore, object_type, nb_partitions)
         with self.transaction() as cur:
             cur.execute(
                 """
                 SELECT last_date
                 FROM checked_partition
-                WHERE datastore=%s AND object_type=%s AND partition_id=%s AND nb_partitions=%s
+                WHERE config_id=%s AND partition_id=%s
                 """,
-                (datastore_id, object_type.name.lower(), partition_id, nb_partitions),
+                (config_id, partition_id),
             )
 
             res = cur.fetchone()
@@ -176,9 +211,10 @@ class ScrubberDb(BaseDb):
         with self.transaction() as cur:
             cur.execute(
                 """
-                SELECT object_type, partition_id, nb_partitions, last_date
-                FROM checked_partition
-                WHERE datastore=%s
+                SELECT CC.object_type, CP.partition_id, CC.nb_partitions, CP.last_date
+                FROM checked_partition as CP
+                INNER JOIN check_config AS CC on (CC.id=CP.config_id)
+                WHERE CC.datastore=%s
                 """,
                 (datastore_id,),
             )

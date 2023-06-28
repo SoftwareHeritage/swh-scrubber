@@ -6,7 +6,7 @@ create domain swhid as text check (value ~ '^swh:[0-9]+:.*');
 
 create table datastore
 (
-  id                bigserial not null,
+  id                serial not null,
   package           datastore_type not null,
   class             text,
   instance          text
@@ -20,22 +20,38 @@ comment on column datastore.instance is 'Human-readable way to uniquely identify
 
 
 -------------------------------------
+-- Checker configuration
+-------------------------------------
+
+create table check_config
+(
+  id					serial not null,
+  datastore             int not null,
+  object_type           object_type not null,
+  nb_partitions         bigint not null,
+  name                  text,
+  comment               text
+);
+
+comment on table check_config is 'Configuration of a checker for a given object type from a given datastore.';
+comment on column check_config.datastore is 'The datastore this checker config is about.';
+comment on column check_config.object_type is 'The type of checked objects.';
+comment on column check_config.nb_partitions is 'Number of partitions the set of objects is split into.';
+
+-------------------------------------
 -- Checkpointing/progress tracking
 -------------------------------------
 
 create table checked_partition
 (
-  datastore             int not null,
-  object_type           object_type not null,
+  config_id             int not null,
   partition_id          bigint not null,
-  nb_partitions         bigint not null,
   last_date             timestamptz not null
 );
 
-comment on table checked_partition is 'Each row represents a range of objects in a datastore that were fetched, checksummed, and checked at some point in the past. The whole set of objects of the given type is split into nb_partitions and partition_id is a value from 0 to nb_partitions-1.';
-comment on column checked_partition.object_type is 'The type of tested objects.';
+comment on table checked_partition is 'Each row represents a range of objects in a datastore that were fetched, checksummed, and checked at some point in the past. The whole set of objects of the given type is split into config.nb_partitions and partition_id is a value from 0 to config.nb_partitions-1.';
+comment on column checked_partition.config_id is 'The check configuration this partition concerns.';
 comment on column checked_partition.partition_id is 'Index of the partition to fetch';
-comment on column checked_partition.nb_partitions is 'Number of partitions the set of objects is split into.';
 comment on column checked_partition.last_date is 'Date the last scrub of this partition *started*.';
 
 -------------------------------------
