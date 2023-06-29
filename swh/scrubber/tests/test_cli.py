@@ -58,6 +58,46 @@ def invoke(
     return result
 
 
+def test_check_init(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
+    assert result.output.strip() == msg
+
+    # error: cfg name already exists
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "8",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 1, result.output
+    msg = "Error: Configuration cfg1 already exists"
+    assert result.output.strip() == msg
+
+
 def test_check_storage(mocker, scrubber_db, swh_storage):
     storage_checker = MagicMock()
     StorageChecker = mocker.patch(
@@ -67,21 +107,72 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         "swh.scrubber.get_scrubber_db", return_value=scrubber_db
     )
     result = invoke(
-        scrubber_db, ["check", "storage", "--object-type=snapshot"], storage=swh_storage
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
+    assert result.output.strip() == msg
+
+    result = invoke(scrubber_db, ["check", "storage", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    StorageChecker.assert_called_once_with(
+        db=scrubber_db,
+        config_id=1,
+        storage=StorageChecker.mock_calls[0][2]["storage"],
+        limit=0,
+    )
+    assert storage_checker.method_calls == [call.run()]
+
+    # using the config id instead of the config name
+    result = invoke(
+        scrubber_db, ["check", "storage", "--config-id", "1"], storage=swh_storage
     )
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
-    StorageChecker.assert_called_once_with(
-        db=scrubber_db,
-        storage=StorageChecker.mock_calls[0][2]["storage"],
-        object_type="snapshot",
-        start_partition_id=0,
-        end_partition_id=4096,
-        nb_partitions=4096,
+
+def test_check_list(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+    with swh_storage.db() as db:
+        dsn = db.conn.dsn
+
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
     )
-    assert storage_checker.method_calls == [call.run()]
+    assert result.exit_code == 0, result.output
+
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = f"[1] cfg1: snapshot, 4, storage:postgresql ({dsn})\n"
+    assert result.output == expected, result.output
 
 
 def test_check_journal(

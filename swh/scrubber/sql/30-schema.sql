@@ -46,13 +46,15 @@ create table checked_partition
 (
   config_id             int not null,
   partition_id          bigint not null,
-  last_date             timestamptz not null
+  start_date            timestamptz,
+  end_date              timestamptz
 );
 
 comment on table checked_partition is 'Each row represents a range of objects in a datastore that were fetched, checksummed, and checked at some point in the past. The whole set of objects of the given type is split into config.nb_partitions and partition_id is a value from 0 to config.nb_partitions-1.';
 comment on column checked_partition.config_id is 'The check configuration this partition concerns.';
 comment on column checked_partition.partition_id is 'Index of the partition to fetch';
-comment on column checked_partition.last_date is 'Date the last scrub of this partition *started*.';
+comment on column checked_partition.start_date is 'Date the last scrub started for this partition.';
+comment on column checked_partition.end_date is 'Date the last scrub ended of this partition.';
 
 -------------------------------------
 -- Inventory of objects with issues

@@ -7,8 +7,7 @@
 
 import collections
 import contextlib
-import dataclasses
-import datetime
+from itertools import count, islice
 import json
 import logging
 from typing import Iterable, Optional, Tuple, Union
@@ -36,7 +35,7 @@ from swh.storage.cassandra.storage import CassandraStorage
 from swh.storage.interface import StorageInterface
 from swh.storage.postgresql.storage import Storage as PostgresqlStorage
 
-from .db import Datastore, ScrubberDb
+from .db import ConfigEntry, Datastore, ScrubberDb
 
 logger = logging.getLogger(__name__)
 
@@ -89,67 +88,83 @@ def _get_inclusive_range_swhids(
     return (range_start_swhid, range_end_swhid)
 
 
-@dataclasses.dataclass
+def get_datastore(storage) -> Datastore:
+    if isinstance(storage, PostgresqlStorage):
+        with postgresql_storage_db(storage) as db:
+            datastore = Datastore(
+                package="storage",
+                cls="postgresql",
+                instance=db.conn.dsn,
+            )
+    elif isinstance(storage, CassandraStorage):
+        datastore = Datastore(
+            package="storage",
+            cls="cassandra",
+            instance=json.dumps(
+                {
+                    "keyspace": storage.keyspace,
+                    "hosts": storage.hosts,
+                    "port": storage.port,
+                }
+            ),
+        )
+    else:
+        raise NotImplementedError(f"StorageChecker(storage={storage!r}).datastore()")
+    return datastore
+
+
 class StorageChecker:
     """Reads a chunk of a swh-storage database, recomputes checksums, and
     reports errors in a separate database."""
 
-    db: ScrubberDb
-    storage: StorageInterface
-    object_type: str
-    """``directory``/``revision``/``release``/``snapshot``"""
-    nb_partitions: int
-    """Number of partitions to split the whole set of objects into.
-    Must be a power of 2."""
-    start_partition_id: int
-    """First partition id to check (inclusive). Must be in the range [0, nb_partitions).
-    """
-    end_partition_id: int
-    """Last partition id to check (exclusive). Must be in the range
-    (start_partition_id, nb_partitions]"""
+    def __init__(
+        self, db: ScrubberDb, config_id: int, storage: StorageInterface, limit: int = 0
+    ):
+        self.db = db
+        self.storage = storage
+        self.config_id = config_id
+        self.limit = limit
 
-    _datastore = None
-    _statsd = None
+        self._config: Optional[ConfigEntry] = None
+        self._datastore: Optional[Datastore] = None
+        self._statsd: Optional[Statsd] = None
 
-    def datastore_info(self) -> Datastore:
+    @property
+    def config(self) -> ConfigEntry:
+        if self._config is None:
+            self._config = self.db.config_get(self.config_id)
+
+        assert self._config is not None
+        return self._config
+
+    @property
+    def nb_partitions(self) -> int:
+        return self.config.nb_partitions
+
+    @property
+    def object_type(self) -> str:
+        return self.config.object_type
+
+    @property
+    def datastore(self) -> Datastore:
         """Returns a :class:`Datastore` instance representing the swh-storage instance
         being checked."""
         if self._datastore is None:
-            if isinstance(self.storage, PostgresqlStorage):
-                with postgresql_storage_db(self.storage) as db:
-                    self._datastore = Datastore(
-                        package="storage",
-                        cls="postgresql",
-                        instance=db.conn.dsn,
-                    )
-            elif isinstance(self.storage, CassandraStorage):
-                self._datastore = Datastore(
-                    package="storage",
-                    cls="cassandra",
-                    instance=json.dumps(
-                        {
-                            "keyspace": self.storage.keyspace,
-                            "hosts": self.storage.hosts,
-                            "port": self.storage.port,
-                        }
-                    ),
-                )
-            else:
-                raise NotImplementedError(
-                    f"StorageChecker(storage={self.storage!r}).datastore()"
-                )
+            self._datastore = get_datastore(self.storage)
+            datastore_id = self.db.datastore_get_or_add(self._datastore)
+            assert self.config.datastore_id == datastore_id
         return self._datastore
 
+    @property
     def statsd(self) -> Statsd:
         if self._statsd is None:
-            datastore = self.datastore_info()
             self._statsd = Statsd(
                 namespace="swh_scrubber",
                 constant_tags={
                     "object_type": self.object_type,
                     "nb_partitions": self.nb_partitions,
-                    "datastore_package": datastore.package,
-                    "datastore_cls": datastore.cls,
+                    "datastore_package": self.datastore.package,
+                    "datastore_cls": self.datastore.cls,
                 },
             )
         return self._statsd
@@ -159,27 +174,12 @@ class StorageChecker:
         ``start_partition_id`` (inclusive) and ``end_partition_id`` (exclusive)
         """
         object_type = getattr(swhids.ObjectType, self.object_type.upper())
-        for partition_id in range(self.start_partition_id, self.end_partition_id):
-
-            start_time = datetime.datetime.now(tz=datetime.timezone.utc)
-
-            # Currently, this matches range boundaries exactly, with no regard for
-            # ranges that contain or are contained by it.
-            last_check_time = self.db.checked_partition_get_last_date(
-                self.datastore_info(), object_type, partition_id, self.nb_partitions
-            )
-
-            if last_check_time is not None:
-                # TODO: re-check if 'last_check_time' was a long ago.
-                logger.debug(
-                    "Skipping processing of %s partition %d/%d: already done at %s",
-                    self.object_type,
-                    partition_id,
-                    self.nb_partitions,
-                    last_check_time,
-                )
-                continue
-
+        counter: Iterable[int] = count()
+        if self.limit:
+            counter = islice(counter, 0, self.limit)
+        for i, partition_id in zip(
+            counter, self.db.checked_partition_iter_next(self.config_id)
+        ):
             logger.debug(
                 "Processing %s partition %d/%d",
                 self.object_type,
@@ -190,11 +190,8 @@ class StorageChecker:
             self._check_partition(object_type, partition_id)
 
             self.db.checked_partition_upsert(
-                self.datastore_info(),
-                object_type,
+                self.config_id,
                 partition_id,
-                self.nb_partitions,
-                start_time,
             )
 
     @tenacity.retry(
@@ -225,10 +222,10 @@ class StorageChecker:
                     assert item is not None, f"Directory {dir_id.hex()} disappeared"
                     (has_duplicate_entries, object_) = item
                     if has_duplicate_entries:
-                        self.statsd().increment("duplicate_directory_entries_total")
+                        self.statsd.increment("duplicate_directory_entries_total")
                         self.db.corrupt_object_add(
                             object_.swhid(),
-                            self.datastore_info(),
+                            self.datastore,
                             value_to_kafka(object_.to_dict()),
                         )
                     objects.append(object_)
@@ -244,13 +241,17 @@ class StorageChecker:
             else:
                 assert False, f"Unexpected object type: {object_type}"
 
-            with self.statsd().timed(
+            with self.statsd.timed(
                 "batch_duration_seconds", tags={"operation": "check_hashes"}
             ):
+                logger.debug("Checking %s %s object hashes", len(objects), object_type)
                 self.check_object_hashes(objects)
-            with self.statsd().timed(
+            with self.statsd.timed(
                 "batch_duration_seconds", tags={"operation": "check_references"}
             ):
+                logger.debug(
+                    "Checking %s %s object references", len(objects), object_type
+                )
                 self.check_object_references(objects)
 
             page_token = page.next_page_token
@@ -267,14 +268,14 @@ class StorageChecker:
             real_id = object_.compute_hash()
             count += 1
             if object_.id != real_id:
-                self.statsd().increment("hash_mismatch_total")
+                self.statsd.increment("hash_mismatch_total")
                 self.db.corrupt_object_add(
                     object_.swhid(),
-                    self.datastore_info(),
+                    self.datastore,
                     value_to_kafka(object_.to_dict()),
                 )
         if count:
-            self.statsd().increment("objects_hashed_total", count)
+            self.statsd.increment("objects_hashed_total", count)
 
     def check_object_references(self, objects: Iterable[ScrubbableObject]):
         """Check all objects references by these objects exist."""
@@ -348,27 +349,27 @@ class StorageChecker:
         missing_rels = set(self.storage.release_missing(list(rel_references)))
         missing_snps = set(self.storage.snapshot_missing(list(snp_references)))
 
-        self.statsd().increment(
+        self.statsd.increment(
             "missing_object_total",
             len(missing_cnts),
             tags={"target_object_type": "content"},
         )
-        self.statsd().increment(
+        self.statsd.increment(
             "missing_object_total",
             len(missing_dirs),
             tags={"target_object_type": "directory"},
         )
-        self.statsd().increment(
+        self.statsd.increment(
             "missing_object_total",
             len(missing_revs),
             tags={"target_object_type": "revision"},
         )
-        self.statsd().increment(
+        self.statsd.increment(
             "missing_object_total",
             len(missing_rels),
             tags={"target_object_type": "release"},
         )
-        self.statsd().increment(
+        self.statsd.increment(
             "missing_object_total",
             len(missing_snps),
             tags={"target_object_type": "snapshot"},
@@ -379,7 +380,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.CONTENT, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, cnt_references[missing_id], self.datastore_info()
+                missing_swhid, cnt_references[missing_id], self.datastore
             )
 
         for missing_id in missing_dirs:
@@ -387,7 +388,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.DIRECTORY, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, dir_references[missing_id], self.datastore_info()
+                missing_swhid, dir_references[missing_id], self.datastore
             )
 
         for missing_id in missing_revs:
@@ -395,7 +396,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.REVISION, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, rev_references[missing_id], self.datastore_info()
+                missing_swhid, rev_references[missing_id], self.datastore
             )
 
         for missing_id in missing_rels:
@@ -403,7 +404,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.RELEASE, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, rel_references[missing_id], self.datastore_info()
+                missing_swhid, rel_references[missing_id], self.datastore
             )
 
         for missing_id in missing_snps:
@@ -411,5 +412,5 @@ class StorageChecker:
                 object_type=swhids.ObjectType.SNAPSHOT, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, snp_references[missing_id], self.datastore_info()
+                missing_swhid, snp_references[missing_id], self.datastore
             )

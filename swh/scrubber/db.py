@@ -15,6 +15,10 @@ from swh.core.db import BaseDb
 from swh.model.swhids import CoreSWHID, ObjectType
 
 
+def now():
+    return datetime.datetime.now(tz=datetime.timezone.utc)
+
+
 @dataclasses.dataclass(frozen=True)
 class Datastore:
     """Represents a datastore being scrubbed; eg. swh-storage or swh-journal."""
@@ -59,6 +63,16 @@ class FixedObject:
     recovery_date: Optional[datetime.datetime] = None
 
 
+@dataclasses.dataclass(frozen=True)
+class ConfigEntry:
+    """Represents a datastore being scrubbed; eg. swh-storage or swh-journal."""
+
+    name: str
+    datastore_id: int
+    object_type: str
+    nb_partitions: int
+
+
 class ScrubberDb(BaseDb):
     current_version = 6
 
@@ -99,84 +113,223 @@ class ScrubberDb(BaseDb):
             return id_
 
     @functools.lru_cache(1000)
-    def config_get_or_add(
-        self, datastore: Datastore, object_type: ObjectType, nb_partitions: int
+    def datastore_get(self, datastore_id: int) -> Datastore:
+        """Returns a datastore's id. Raises :exc:`ValueError` if it does not exist."""
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                    SELECT package, class, instance
+                    FROM datastore
+                    WHERE id=%s
+                """,
+                (datastore_id,),
+            )
+            res = cur.fetchone()
+            if res is None:
+                raise ValueError(f"No datastore with id {datastore_id}")
+            (package, cls, instance) = res
+            return Datastore(package=package, cls=cls, instance=instance)
+
+    def config_add(
+        self,
+        name: Optional[str],
+        datastore: Datastore,
+        object_type: ObjectType,
+        nb_partitions: int,
     ) -> int:
-        """Creates a configuration entry (and a datastore) if it does not exist, and returns its id."""
+        """Creates a configuration entry (and potentially a datastore);
+
+        Will fail if a config with same (datastore. object_type, nb_paritions)
+        already exists.
+        """
+
         datastore_id = self.datastore_get_or_add(datastore)
+        if not name:
+            name = (
+                f"check_{object_type.name.lower()}_{nb_partitions}_"
+                f"{datastore.package}_{datastore.cls}"
+            )
+        args = {
+            "name": name,
+            "datastore_id": datastore_id,
+            "object_type": object_type.name.lower(),
+            "nb_partitions": nb_partitions,
+        }
         with self.transaction() as cur:
             cur.execute(
                 """
                 WITH inserted AS (
-                    INSERT INTO check_config (datastore, object_type, nb_partitions)
-                    VALUES (%(datastore_id)s, %(object_type)s, %(nb_partitions)s)
-                    ON CONFLICT DO NOTHING
+                    INSERT INTO check_config (name, datastore, object_type, nb_partitions)
+                    VALUES (%(name)s, %(datastore_id)s, %(object_type)s, %(nb_partitions)s)
                     RETURNING id
                 )
                 SELECT id
-                FROM inserted
-                UNION (
-                    -- If the datastore already exists, we need to fetch its id
-                    SELECT id
+                FROM inserted;
+                """,
+                args,
+            )
+            res = cur.fetchone()
+            if res is None:
+                raise ValueError(f"No config matching {args}")
+            (id_,) = res
+            return id_
+
+    @functools.lru_cache(1000)
+    def config_get(self, config_id: int) -> ConfigEntry:
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                    SELECT name, datastore, object_type, nb_partitions
                     FROM check_config
-                    WHERE
-                        datastore=%(datastore_id)s
-                        AND object_type=%(object_type)s
-                        AND nb_partitions=%(nb_partitions)s
-                )
-                LIMIT 1
+                    WHERE id=%(config_id)s
                 """,
                 {
-                    "datastore_id": datastore_id,
-                    "object_type": object_type.name.lower(),
-                    "nb_partitions": nb_partitions,
+                    "config_id": config_id,
                 },
             )
             res = cur.fetchone()
-            assert res is not None
-            (id_,) = res
-            return id_
+            if res is None:
+                raise ValueError(f"No config with id {config_id}")
+            (name, datastore_id, object_type, nb_partitions) = res
+            return ConfigEntry(
+                name=name,
+                datastore_id=datastore_id,
+                object_type=object_type,
+                nb_partitions=nb_partitions,
+            )
+
+    def config_get_by_name(
+        self,
+        name: str,
+    ) -> Optional[int]:
+        """Get the configuration entry for given name, if any"""
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                SELECT id
+                    FROM check_config
+                    WHERE
+                        name=%s
+                """,
+                (name,),
+            )
+            if cur.rowcount:
+                res = cur.fetchone()
+                if res:
+                    (id_,) = res
+                    return id_
+            return None
+
+    def config_iter(self) -> Iterator[Tuple[int, ConfigEntry]]:
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                    SELECT id, name, datastore, object_type, nb_partitions
+                    FROM check_config
+                """,
+            )
+            for row in cur:
+                assert row is not None
+                (id_, name, datastore_id, object_type, nb_partitions) = row
+                yield (
+                    id_,
+                    ConfigEntry(
+                        name=name,
+                        datastore_id=datastore_id,
+                        object_type=object_type,
+                        nb_partitions=nb_partitions,
+                    ),
+                )
 
     ####################################
     # Checkpointing/progress tracking
     ####################################
 
+    def checked_partition_iter_next(
+        self,
+        config_id: int,
+    ) -> Iterator[int]:
+        """Generates partitions to be checked for the given configuration
+
+        At each iteration, look for the next "free" partition in the
+        checked_partition, for the given config_id, reserve it and return its
+        id.
+
+        Reserving the partition means make sure there is a row in the table for
+        this partition id with the start_date column set.
+
+        To chose a "free" partition is to select either the smaller partition
+        is for which the start_date is NULL, or the first partition id not yet
+        in the table.
+
+        Stops the iteration when the number of partitions for the config id is
+        reached.
+
+        """
+        while True:
+            start_time = now()
+            with self.transaction() as cur:
+                cur.execute(
+                    """
+                    WITH next AS (
+                     SELECT min(partition_id) as pid
+                      FROM checked_partition
+                      WHERE config_id=%(config_id)s and start_date is NULL
+                     UNION
+                     SELECT coalesce(max(partition_id) + 1, 0) as pid
+                      FROM checked_partition
+                      WHERE config_id=%(config_id)s
+                    )
+                    INSERT INTO checked_partition(config_id, partition_id, start_date)
+                      select %(config_id)s, min(pid), %(start_date)s from next
+                      where pid is not NULL
+                    ON CONFLICT (config_id, partition_id)
+                    DO UPDATE
+                      SET start_date = GREATEST(
+                        checked_partition.start_date, EXCLUDED.start_date
+                      )
+                    RETURNING partition_id;
+                    """,
+                    {"config_id": config_id, "start_date": start_time},
+                )
+                res = cur.fetchone()
+                assert res is not None
+                (partition_id,) = res
+                if partition_id >= self.config_get(config_id).nb_partitions:
+                    self.conn.rollback()
+                    return
+            yield partition_id
+
     def checked_partition_upsert(
         self,
-        datastore: Datastore,
-        object_type: ObjectType,
+        config_id: int,
         partition_id: int,
-        nb_partitions: int,
-        date: datetime.datetime,
+        date: Optional[datetime.datetime] = None,
     ) -> None:
         """
         Records in the database the given partition was last checked at the given date.
         """
-        config_id = self.config_get_or_add(datastore, object_type, nb_partitions)
+        if date is None:
+            date = now()
+
         with self.transaction() as cur:
             cur.execute(
                 """
-                INSERT INTO checked_partition(config_id, partition_id, last_date)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (config_id, partition_id)
-                    DO UPDATE
-                    SET last_date = GREATEST(
-                        checked_partition.last_date, EXCLUDED.last_date
-                    )
+                UPDATE checked_partition
+                SET end_date = GREATEST(%(date)s, end_date)
+                WHERE config_id=%(config_id)s AND partition_id=%(partition_id)s
                 """,
-                (
-                    config_id,
-                    partition_id,
-                    date,
-                ),
+                {
+                    "config_id": config_id,
+                    "partition_id": partition_id,
+                    "date": date,
+                },
             )
 
     def checked_partition_get_last_date(
         self,
-        datastore: Datastore,
-        object_type: ObjectType,
+        config_id: int,
         partition_id: int,
-        nb_partitions: int,
     ) -> Optional[datetime.datetime]:
         """
         Returns the last date the given partition was checked in the given datastore,
@@ -185,11 +338,10 @@ class ScrubberDb(BaseDb):
         Currently, this matches partition id and number exactly, with no regard for
         partitions that contain or are contained by it.
         """
-        config_id = self.config_get_or_add(datastore, object_type, nb_partitions)
         with self.transaction() as cur:
             cur.execute(
                 """
-                SELECT last_date
+                SELECT end_date
                 FROM checked_partition
                 WHERE config_id=%s AND partition_id=%s
                 """,
@@ -204,23 +356,22 @@ class ScrubberDb(BaseDb):
                 return date
 
     def checked_partition_iter(
-        self, datastore: Datastore
-    ) -> Iterator[Tuple[ObjectType, int, int, datetime.datetime]]:
-        """Yields tuples of ``(partition_id, nb_partitions, last_date)``"""
-        datastore_id = self.datastore_get_or_add(datastore)
+        self, config_id: int
+    ) -> Iterator[Tuple[int, int, datetime.datetime, Optional[datetime.datetime]]]:
+        """Yields tuples of ``(partition_id, nb_partitions, start_date, end_date)``"""
         with self.transaction() as cur:
             cur.execute(
                 """
-                SELECT CC.object_type, CP.partition_id, CC.nb_partitions, CP.last_date
+                SELECT CP.partition_id, CC.nb_partitions, CP.start_date, CP.end_date
                 FROM checked_partition as CP
                 INNER JOIN check_config AS CC on (CC.id=CP.config_id)
-                WHERE CC.datastore=%s
+                WHERE CC.id=%s
                 """,
-                (datastore_id,),
+                (config_id,),
             )
 
-            for (object_type, *rest) in cur:
-                yield (getattr(ObjectType, object_type.upper()), *rest)  # type: ignore[misc]
+            for row in cur:
+                yield tuple(row)  # type: ignore[misc]
 
     ####################################
     # Inventory of objects with issues
