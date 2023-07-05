@@ -175,6 +175,85 @@ def test_check_list(mocker, scrubber_db, swh_storage):
     assert result.output == expected, result.output
 
 
+def test_check_stalled(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a partition started 20mn ago
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition VALUES (1, 0, now() - '20m'::interval, NULL);"
+        )
+
+    # there are no existing completed partition, defaults to 1h to be considered as stalled
+    # so a partition just added is not stalled
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a partition started 2 hours from now
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition VALUES (1, 1, now() - '2h'::interval, NULL);"
+        )
+    # it is considered as stalled by default
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+  1: today (2 hours)
+"""
+    assert result.output == expected, result.output
+
+    # explicitly specify a delay > 2h to be considered as stelles: no one stalled
+    result = invoke(
+        scrubber_db, ["check", "stalled", "--for", "8000", "cfg1"], storage=swh_storage
+    )
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a transaction that took 5mn to run
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 2, now() - '2h'::interval, now() - '1h55m'::interval);"
+        )
+    # so now both partitions 0 and 1 should be considered a stalled
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+  0: today (20 minutes)
+  1: today (2 hours)
+"""
+    assert result.output == expected, result.output
+
+
 def test_check_journal(
     mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
 ):

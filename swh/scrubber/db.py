@@ -355,6 +355,73 @@ class ScrubberDb(BaseDb):
                 (date,) = res
                 return date
 
+    def checked_partition_get_running(
+        self,
+        config_id: int,
+    ) -> Iterator[Tuple[int, datetime.datetime]]:
+        """Yields the partitions which are currently being checked; i.e. which have a
+        start_date but no end_date.
+        """
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                SELECT partition_id, start_date
+                FROM checked_partition
+                WHERE config_id=%s AND end_date is NULL
+                """,
+                (config_id,),
+            )
+
+            for partition_id, start_date in cur:
+                yield (partition_id, start_date)
+
+    def checked_partition_get_stuck(
+        self,
+        config_id: int,
+        since: Optional[datetime.timedelta] = None,
+    ) -> Iterator[Tuple[int, datetime.datetime]]:
+        """Yields the partitions which are currently running for more than `since`; if
+        not set, automatically guess a reasonable delay from completed partitions.
+        If no such a delay can be extracted, fall back to 1 hour.
+
+        The heuristic for the automatic delay is 2x max(end_date-start_date)
+        for the last 10 partitions checked.
+
+        """
+        with self.transaction() as cur:
+            if since is None:
+                cur.execute(
+                    """
+                    WITH delays as
+                    (
+                    SELECT end_date - start_date as delay
+                    FROM checked_partition
+                    WHERE config_id=%s AND end_date is not NULL
+                    ORDER BY start_date DESC
+                    LIMIT 10
+                    )
+                    SELECT 2*max(delay) from delays
+                    """,
+                    (config_id,),
+                )
+                res = cur.fetchone()
+                assert res is not None
+                (since,) = res
+            if since is None:
+                since = datetime.timedelta(hours=1)
+
+            cur.execute(
+                """
+                SELECT partition_id, start_date
+                FROM checked_partition
+                WHERE config_id=%s AND end_date is NULL AND start_date < %s
+                """,
+                (config_id, now() - since),
+            )
+
+            for partition_id, start_date in cur:
+                yield (partition_id, start_date)
+
     def checked_partition_iter(
         self, config_id: int
     ) -> Iterator[Tuple[int, int, datetime.datetime, Optional[datetime.datetime]]]:

@@ -159,3 +159,38 @@ def test_checked_partition_get(
     scrubber_db.checked_partition_upsert(config_id, part_id, DATE)
 
     assert scrubber_db.checked_partition_get_last_date(config_id, part_id) == DATE
+
+
+def test_checked_partition_get_running(
+    datastore: Datastore, scrubber_db: ScrubberDb, config_id: int
+):
+    assert list(scrubber_db.checked_partition_get_running(config_id)) == []
+    with patch("swh.scrubber.db.now", return_value=DATE):
+        dir_part_gen = scrubber_db.checked_partition_iter_next(config_id)
+        part_id1 = next(dir_part_gen)
+        part_id2 = next(dir_part_gen)
+        part_id3 = next(dir_part_gen)
+
+    assert scrubber_db.checked_partition_get_last_date(config_id, part_id1) is None
+    assert scrubber_db.checked_partition_get_last_date(config_id, part_id2) is None
+    assert scrubber_db.checked_partition_get_last_date(config_id, part_id3) is None
+
+    assert list(scrubber_db.checked_partition_get_running(config_id)) == [
+        (part_id1, DATE),
+        (part_id2, DATE),
+        (part_id3, DATE),
+    ]
+
+    scrubber_db.checked_partition_upsert(config_id, part_id2, DATE + ONE_MINUTE)
+    assert list(scrubber_db.checked_partition_get_running(config_id)) == [
+        (part_id1, DATE),
+        (part_id3, DATE),
+    ]
+
+    scrubber_db.checked_partition_upsert(config_id, part_id1, DATE + ONE_MINUTE)
+    assert list(scrubber_db.checked_partition_get_running(config_id)) == [
+        (part_id3, DATE),
+    ]
+
+    scrubber_db.checked_partition_upsert(config_id, part_id3, DATE + ONE_MINUTE)
+    assert list(scrubber_db.checked_partition_get_running(config_id)) == []

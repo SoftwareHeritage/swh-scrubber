@@ -188,6 +188,65 @@ def scrubber_check_list(
             )
 
 
+@scrubber_check_cli_group.command(name="stalled")
+@click.argument(
+    "name",
+    type=str,
+    default=None,
+    required=False,  # can be given by config_id instead
+)
+@click.option(
+    "--config-id",
+    type=int,
+)
+@click.option(
+    "--for",
+    "delay",
+    type=str,
+    default="auto",
+    help="Delay for a partition to be considered as stuck; in seconds or 'auto'",
+)
+@click.pass_context
+def scrubber_check_stalled(
+    ctx,
+    name: str,
+    config_id: int,
+    delay: Optional[str],
+):
+    """List the stuck partitions for a given config"""
+    import datetime
+
+    from humanize import naturaldate, naturaldelta
+
+    db = ctx.obj["db"]
+    if name and config_id is None:
+        config_id = db.config_get_by_name(name)
+
+    if config_id is None:
+        raise click.ClickException("A valid configuration name/id must be set")
+
+    cfg = db.config_get(config_id)
+    delay_td: Optional[datetime.timedelta]
+    if delay == "auto":
+        delay_td = None
+    elif delay:
+        delay_td = datetime.timedelta(seconds=int(delay))
+    in_flight = list(db.checked_partition_get_stuck(config_id, delay_td))
+    if in_flight:
+        click.echo(
+            f"Stuck partitions for {cfg.name} [id={config_id}, type={cfg.object_type}]:"
+        )
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        for partition, stuck_since in in_flight:
+            click.echo(
+                f"  {partition}: {naturaldate(stuck_since)} ({naturaldelta(now-stuck_since)})"
+            )
+    else:
+        click.echo(
+            f"No stuck partition found for {cfg.name} [id={config_id}, type={cfg.object_type}]"
+        )
+
+
 @scrubber_check_cli_group.command(name="storage")
 @click.argument(
     "name",
