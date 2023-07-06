@@ -225,7 +225,7 @@ def test_check_stalled(mocker, scrubber_db, swh_storage):
     assert result.exit_code == 0, result.output
     expected = """\
 Stuck partitions for cfg1 [id=1, type=snapshot]:
-  1: today (2 hours)
+1:	stuck since today (2 hours)
 """
     assert result.output == expected, result.output
 
@@ -248,10 +248,89 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
     assert result.exit_code == 0, result.output
     expected = """\
 Stuck partitions for cfg1 [id=1, type=snapshot]:
-  0: today (20 minutes)
-  1: today (2 hours)
+0:	stuck since today (20 minutes)
+1:	stuck since today (2 hours)
 """
     assert result.output == expected, result.output
+
+
+def test_check_reset(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a few partitions
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 0, now() - '20m'::interval, NULL);"
+        )
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 1, now() - '2h'::interval, NULL);"
+        )
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 2, now() - '2h'::interval, now() - '1h55m'::interval);"
+        )
+
+    # partitions 0 and 1 are considered as stalled
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+0:	stuck since today (20 minutes)
+1:	stuck since today (2 hours)
+"""
+    assert result.output == expected, result.output
+
+    # let's reset them
+    result = invoke(
+        scrubber_db, ["check", "stalled", "--reset", "cfg1"], storage=swh_storage
+    )
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+0:	stuck since today (20 minutes)
+	partition reset
+1:	stuck since today (2 hours)
+	partition reset
+"""  # noqa: W191,E101
+    assert result.output == expected, result.output
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "SELECT partition_id, end_date "
+            "FROM checked_partition "
+            "WHERE config_id=1 AND start_date is NULL"
+        )
+        assert cur.fetchall() == [(0, None), (1, None)]
+
+    # for good measure, check the next few selected partitions, expected 0, 1 and 3
+    assert next(scrubber_db.checked_partition_iter_next(1)) == 0
+    assert next(scrubber_db.checked_partition_iter_next(1)) == 1
+    assert next(scrubber_db.checked_partition_iter_next(1)) == 3
 
 
 def test_check_journal(

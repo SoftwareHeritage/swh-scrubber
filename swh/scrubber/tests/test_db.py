@@ -125,6 +125,30 @@ def test_checked_partition_get_next(
     assert next(dir_part_gen) == 4
 
 
+def test_checked_partition_get_next_with_hole(
+    datastore: Datastore, scrubber_db: ScrubberDb, config_id: int
+):
+    dir_part_gen = scrubber_db.checked_partition_iter_next(config_id)
+
+    # fill the checked_partition table
+    list(zip(range(20), dir_part_gen))
+
+    # one hole at a time
+    for part_id in range(10):
+        assert scrubber_db.checked_partition_reset(config_id, part_id)
+        assert next(dir_part_gen) == part_id
+
+    # a series of holes
+    for part_id in range(0, 10, 2):
+        assert scrubber_db.checked_partition_reset(config_id, part_id)
+
+    for i in range(5):
+        assert next(dir_part_gen) == 2 * i
+
+    # all the holes are filled, next partition is 20
+    assert next(dir_part_gen) == 20
+
+
 def test_checked_partition_update(
     datastore: Datastore, scrubber_db: ScrubberDb, config_id: int
 ):

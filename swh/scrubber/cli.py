@@ -206,12 +206,15 @@ def scrubber_check_list(
     default="auto",
     help="Delay for a partition to be considered as stuck; in seconds or 'auto'",
 )
+@click.option(
+    "--reset",
+    is_flag=True,
+    default=False,
+    help="Reset the stalled partition so it can be grabbed by a scrubber worker",
+)
 @click.pass_context
 def scrubber_check_stalled(
-    ctx,
-    name: str,
-    config_id: int,
-    delay: Optional[str],
+    ctx, name: str, config_id: int, delay: Optional[str], reset: bool
 ):
     """List the stuck partitions for a given config"""
     import datetime
@@ -239,8 +242,15 @@ def scrubber_check_stalled(
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         for partition, stuck_since in in_flight:
             click.echo(
-                f"  {partition}: {naturaldate(stuck_since)} ({naturaldelta(now-stuck_since)})"
+                f"{partition}:\tstuck since {naturaldate(stuck_since)} "
+                f"({naturaldelta(now-stuck_since)})"
             )
+            if reset:
+                if db.checked_partition_reset(config_id, partition):
+                    click.echo("\tpartition reset")
+                else:
+                    click.echo("\tpartition NOT reset")
+
     else:
         click.echo(
             f"No stuck partition found for {cfg.name} [id={config_id}, type={cfg.object_type}]"

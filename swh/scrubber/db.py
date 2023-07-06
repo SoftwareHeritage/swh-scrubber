@@ -300,6 +300,21 @@ class ScrubberDb(BaseDb):
                     return
             yield partition_id
 
+    def checked_partition_reset(self, config_id: int, partition_id: int) -> bool:
+        """
+        Reset the partition, aka clear start_date and end_date
+        """
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                UPDATE checked_partition
+                SET start_date=NULL, end_date=NULL
+                WHERE config_id=%(config_id)s AND partition_id=%(partition_id)s
+                """,
+                {"config_id": config_id, "partition_id": partition_id},
+            )
+            return bool(cur.rowcount)
+
     def checked_partition_upsert(
         self,
         config_id: int,
