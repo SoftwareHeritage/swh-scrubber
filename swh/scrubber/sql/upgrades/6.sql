@@ -49,7 +49,7 @@ insert into checked_partition
   from old_checked_partition as CP
   inner join check_config as CC using (datastore, object_type, nb_partitions);
 
+drop table old_checked_partition cascade;
+
 create unique index concurrently checked_partition_pkey on checked_partition(config_id, partition_id);
 alter table checked_partition add primary key using index checked_partition_pkey;
-
-drop table old_checked_partition;
