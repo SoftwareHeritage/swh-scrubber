@@ -5,6 +5,7 @@
 
 import os
 from typing import Optional
+import warnings
 
 import click
 
@@ -30,8 +31,8 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
 
     Expected config format::
 
-        scrubber_db:
-            cls: local
+        scrubber:
+            cls: postgresql
             db: "service=..."    # libpq DSN
 
         # for storage checkers + origin locator only:
@@ -78,12 +79,20 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
 
     ctx.ensure_object(dict)
     ctx.obj["config"] = conf
-    if "scrubber_db" not in conf:
+    if "scrubber_db" in conf:
+        warnings.warn(
+            "the 'scrubber_db' configuration section has been renamed to 'scrubber'; "
+            f"please update your configuration file {config_file}",
+            DeprecationWarning,
+        )
+        conf["scrubber"] = conf.pop("scrubber_db")
+
+    if "scrubber" not in conf:
         click.echo(
-            "WARNING: You must have a scrubber_db configured in your config file.\n"
+            "WARNING: You must have a scrubber configured in your config file.\n"
         )
     else:
-        ctx.obj["db"] = get_scrubber_db(**conf["scrubber_db"])
+        ctx.obj["db"] = get_scrubber_db(**conf["scrubber"])
 
 
 @scrubber_cli_group.group(name="check")

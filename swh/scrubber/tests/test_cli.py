@@ -25,7 +25,7 @@ def invoke(
     runner = CliRunner()
 
     config = {
-        "scrubber_db": {"cls": "postgresql", "db": scrubber_db.conn.dsn},
+        "scrubber": {"cls": "postgresql", "db": scrubber_db.conn.dsn},
         "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
@@ -95,7 +95,7 @@ def test_help_check(mocker, scrubber_db, swh_storage):
         scrubber_cli_group, ["check", "--help"], catch_exceptions=False
     )
     output = result.output.splitlines(keepends=False)
-    msg = "WARNING: You must have a scrubber_db configured in your config file."
+    msg = "WARNING: You must have a scrubber configured in your config file."
     assert output[0] == msg
     msg = "Usage: scrubber check [OPTIONS] COMMAND [ARGS]..."
     assert output[2] == msg
