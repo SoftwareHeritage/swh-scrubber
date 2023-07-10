@@ -58,6 +58,52 @@ def invoke(
     return result
 
 
+def test_help_main(mocker, scrubber_db, swh_storage):
+    result = invoke(
+        scrubber_db,
+        [
+            "--help",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    output = result.output.splitlines(keepends=False)
+    msg = "Usage: scrubber [OPTIONS] COMMAND [ARGS]..."
+    assert output[0] == msg
+    assert "Commands:" in output
+    commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
+    assert commands == ["check", "fix", "locate"]
+
+
+def test_help_check(mocker, scrubber_db, swh_storage):
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "--help",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    output = result.output.splitlines(keepends=False)
+    msg = "Usage: scrubber check [OPTIONS] COMMAND [ARGS]..."
+    assert output[0] == msg
+    assert "Commands:" in output
+    commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
+    assert commands == ["init", "journal", "list", "stalled", "storage"]
+
+    # without a config file, --help should still work but with an extra message
+    result = CliRunner().invoke(
+        scrubber_cli_group, ["check", "--help"], catch_exceptions=False
+    )
+    output = result.output.splitlines(keepends=False)
+    msg = "WARNING: You must have a scrubber_db configured in your config file."
+    assert output[0] == msg
+    msg = "Usage: scrubber check [OPTIONS] COMMAND [ARGS]..."
+    assert output[2] == msg
+    assert "Commands:" in output
+    commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
+    assert commands == ["init", "journal", "list", "stalled", "storage"]
+
+
 def test_check_init(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(
