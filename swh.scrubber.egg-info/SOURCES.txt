@@ -49,6 +49,7 @@ swh/scrubber/sql/upgrades/2.sql
 swh/scrubber/sql/upgrades/3.sql
 swh/scrubber/sql/upgrades/4.sql
 swh/scrubber/sql/upgrades/5.sql
+swh/scrubber/sql/upgrades/6.sql
 swh/scrubber/tests/__init__.py
 swh/scrubber/tests/conftest.py
 swh/scrubber/tests/storage_checker_tests.py

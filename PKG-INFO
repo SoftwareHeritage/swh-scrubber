@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: swh.scrubber
-Version: 1.0.3
+Version: 2.0.0
 Summary: Software Heritage Datastore Scrubber
 Home-page: https://forge.softwareheritage.org/diffusion/swh-scrubber
 Author: Software Heritage developers
@@ -46,6 +46,51 @@ The journal is "crawled" using its native streaming; others are crawled by range
 reusing swh-storage's backfiller utilities, and checkpointed from time to time
 to the scrubber's database (in the ``checked_range`` table).
 
+Storage
++++++++
+
+For the storage checker, a checking configuration must be created before being
+able to spawn a number of checkers.
+
+A new configuration is created using the ``swh scrubber check init`` tool:
+
+.. code-block:: bash
+
+   $ swh scrubber check init --object-type snapshot --nb-partitions 65536 --name chk-snp
+   Created configuration chk-snp [2] for checking snapshot in datastore storage postgresql
+
+One (or more) checking worker can then be spawned by using the ``swh scrubber
+check storage`` command:
+
+.. code-block:: bash
+
+   $ swh scrubber check storage chk-snp
+   [...]
+
+
+.. note:: A configuration file is expected, as for most ``swh`` tools.
+          This file must have a ``scrubber`` section with the configuration of
+          the scrubber database. For storage checking operations, this
+          configuration file must also have a ``storage`` configuration section.
+          See the `swh-storage documentation`_ for more details on this. A
+          typical configuration file could look like:
+
+   .. code-block:: yaml
+
+      scrubber:
+        cls: postgresql
+        db: postgresql://localhost/postgres?host=/tmp/tmpk9b4wkb5&port=9824
+
+      storage:
+        cls: postgresql
+        db: service=swh
+        objstorage:
+          cls: noop
+
+.. _`swh-storage documentation`: https://docs.softwareheritage.org/devel/swh-storage/index.html
+
+.. note:: The configuration section ``scrubber_db`` has been renamed as
+          ``scrubber`` in ``swh-scrubber`` version 2.0.0
 
 Recovery
 --------

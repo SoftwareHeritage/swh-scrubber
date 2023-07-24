@@ -64,23 +64,36 @@ EXPECTED_PARTITIONS = {
     (swhids.ObjectType.RELEASE, 0, 1),
 }
 
+OBJECT_TYPES = (
+    swhids.ObjectType.SNAPSHOT,
+    swhids.ObjectType.DIRECTORY,
+    swhids.ObjectType.REVISION,
+    swhids.ObjectType.RELEASE,
+)
+
 
 def assert_checked_ranges(
-    scrubber_db, datastore, expected_ranges, before_date=None, after_date=None
+    scrubber_db, config, expected_ranges, before_date=None, after_date=None
 ):
-    if before_date is not None:
-        assert all(
-            before_date < date < after_date
-            for (_, _, _, date) in scrubber_db.checked_partition_iter(datastore)
-        )
+    checked_ranges = set()
+    for object_type, config_id in config:
+        if before_date is not None:
+            assert all(
+                before_date < date < after_date
+                for (_, _, date, _) in scrubber_db.checked_partition_iter(config_id)
+            )
 
-    checked_ranges = {
-        (object_type, start, end)
-        for (object_type, start, end, date) in scrubber_db.checked_partition_iter(
-            datastore
+        checked_ranges.update(
+            {
+                (object_type, partition, nb_partitions)
+                for (
+                    partition,
+                    nb_partitions,
+                    start_date,
+                    end_date,
+                ) in scrubber_db.checked_partition_iter(config_id)
+            }
         )
-    }
-
     assert checked_ranges == expected_ranges
 
 
@@ -91,21 +104,23 @@ def test_no_corruption(scrubber_db, datastore, swh_storage):
     swh_storage.snapshot_add(swh_model_data.SNAPSHOTS)
 
     before_date = datetime.datetime.now(tz=datetime.timezone.utc)
-    for object_type in ("snapshot", "release", "revision", "directory"):
+    config = []
+    for object_type in OBJECT_TYPES:
+        config_id = scrubber_db.config_add(
+            f"cfg_{object_type.name}", datastore, object_type, 1
+        )
+        config.append((object_type, config_id))
         StorageChecker(
             db=scrubber_db,
             storage=swh_storage,
-            object_type=object_type,
-            start_partition_id=0,
-            end_partition_id=1,
-            nb_partitions=1,
+            config_id=config_id,
         ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
 
     assert list(scrubber_db.corrupt_object_iter()) == []
 
     assert_checked_ranges(
-        scrubber_db, datastore, EXPECTED_PARTITIONS, before_date, after_date
+        scrubber_db, config, EXPECTED_PARTITIONS, before_date, after_date
     )
 
 
@@ -116,14 +131,16 @@ def test_corrupt_snapshot(scrubber_db, datastore, swh_storage, corrupt_idx):
     swh_storage.snapshot_add(snapshots)
 
     before_date = datetime.datetime.now(tz=datetime.timezone.utc)
-    for object_type in ("snapshot", "release", "revision", "directory"):
+    config = []
+    for object_type in OBJECT_TYPES:
+        config_id = scrubber_db.config_add(
+            f"cfg_{object_type.name}", datastore, object_type, 1
+        )
+        config.append((object_type, config_id))
         StorageChecker(
             db=scrubber_db,
             storage=swh_storage,
-            object_type=object_type,
-            start_partition_id=0,
-            end_partition_id=1,
-            nb_partitions=1,
+            config_id=config_id,
         ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -143,7 +160,7 @@ def test_corrupt_snapshot(scrubber_db, datastore, swh_storage, corrupt_idx):
     )
 
     assert_checked_ranges(
-        scrubber_db, datastore, EXPECTED_PARTITIONS, before_date, after_date
+        scrubber_db, config, EXPECTED_PARTITIONS, before_date, after_date
     )
 
 
@@ -153,13 +170,11 @@ def test_corrupt_snapshots_same_batch(scrubber_db, datastore, swh_storage):
         snapshots[i] = attr.evolve(snapshots[i], id=bytes([i]) * 20)
     swh_storage.snapshot_add(snapshots)
 
+    config_id = scrubber_db.config_add("cfg1", datastore, swhids.ObjectType.SNAPSHOT, 1)
     StorageChecker(
         db=scrubber_db,
         storage=swh_storage,
-        object_type="snapshot",
-        start_partition_id=0,
-        end_partition_id=1,
-        nb_partitions=1,
+        config_id=config_id,
     ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
@@ -172,55 +187,57 @@ def test_corrupt_snapshots_same_batch(scrubber_db, datastore, swh_storage):
         ]
     }
 
-    assert_checked_ranges(scrubber_db, datastore, {(swhids.ObjectType.SNAPSHOT, 0, 1)})
+    assert_checked_ranges(
+        scrubber_db,
+        [(swhids.ObjectType.SNAPSHOT, config_id)],
+        {(swhids.ObjectType.SNAPSHOT, 0, 1)},
+    )
 
 
 def test_corrupt_snapshots_different_batches(scrubber_db, datastore, swh_storage):
-    # FIXME: this is brittle, because it relies on both objects being on different
+    # FIXME: this is brittle, because it relies on objects being on different
     # partitions. In particular on Cassandra, it will break if the hashing scheme
     # or hash algorithm changes.
     snapshots = list(swh_model_data.SNAPSHOTS)
-    snapshots.extend([attr.evolve(snapshots[0], id=bytes([i]) * 20) for i in (0, 255)])
+    snapshots.extend(
+        [attr.evolve(snapshots[0], id=bytes([17 * i]) * 20) for i in range(16)]
+    )
     swh_storage.snapshot_add(snapshots)
 
+    config_id = scrubber_db.config_add(
+        "cfg1", datastore, swhids.ObjectType.SNAPSHOT, 16
+    )
     StorageChecker(
         db=scrubber_db,
         storage=swh_storage,
-        object_type="snapshot",
-        start_partition_id=0,
-        end_partition_id=1,
-        nb_partitions=2,
+        config_id=config_id,
+        limit=8,
     ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
-    assert len(corrupt_objects) == 1
+    assert len(corrupt_objects) == 8
 
-    # Simulates resuming from a different process, with an empty lru_cache
+    # Simulates resuming from a different process
     scrubber_db.datastore_get_or_add.cache_clear()
 
     StorageChecker(
         db=scrubber_db,
         storage=swh_storage,
-        object_type="snapshot",
-        start_partition_id=1,
-        end_partition_id=2,
-        nb_partitions=2,
+        config_id=config_id,
+        limit=8,
     ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
-    assert len(corrupt_objects) == 2
+    assert len(corrupt_objects) == 16
     assert {co.id for co in corrupt_objects} == {
         swhids.CoreSWHID.from_string(swhid)
-        for swhid in [
-            "swh:1:snp:0000000000000000000000000000000000000000",
-            "swh:1:snp:ffffffffffffffffffffffffffffffffffffffff",
-        ]
+        for swhid in ["swh:1:snp:" + f"{i:x}" * 40 for i in range(16)]
     }
 
     assert_checked_ranges(
         scrubber_db,
-        datastore,
-        {(swhids.ObjectType.SNAPSHOT, 0, 2), (swhids.ObjectType.SNAPSHOT, 1, 2)},
+        [(swhids.ObjectType.SNAPSHOT, config_id)],
+        {(swhids.ObjectType.SNAPSHOT, i, 16) for i in range(16)},
     )
 
 
@@ -260,14 +277,14 @@ def test_directory_duplicate_entries(scrubber_db, datastore, swh_storage):
     )
 
     before_date = datetime.datetime.now(tz=datetime.timezone.utc)
-    for object_type in ("snapshot", "release", "revision", "directory"):
+    config = []
+    for object_type in OBJECT_TYPES:
+        config_id = scrubber_db.config_add("cfg2", datastore, object_type, 1)
+        config.append((object_type, config_id))
         StorageChecker(
             db=scrubber_db,
             storage=swh_storage,
-            object_type=object_type,
-            start_partition_id=0,
-            end_partition_id=1,
-            nb_partitions=1,
+            config_id=config_id,
         ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -285,7 +302,7 @@ def test_directory_duplicate_entries(scrubber_db, datastore, swh_storage):
     )
 
     assert_checked_ranges(
-        scrubber_db, datastore, EXPECTED_PARTITIONS, before_date, after_date
+        scrubber_db, config, EXPECTED_PARTITIONS, before_date, after_date
     )
 
 
@@ -294,28 +311,27 @@ def test_no_recheck(scrubber_db, datastore, swh_storage):
     Tests that objects that were already checked are not checked again on
     the next run.
     """
-    # Corrupt two snapshots
+    # check the whole (empty) storage with a given config
+    config_id = scrubber_db.config_add("cfg2", datastore, swhids.ObjectType.SNAPSHOT, 1)
+    StorageChecker(
+        db=scrubber_db,
+        storage=swh_storage,
+        config_id=config_id,
+    ).run()
+
+    # Corrupt two snapshots and add them to the storage
     snapshots = list(swh_model_data.SNAPSHOTS)
     for i in (0, 1):
         snapshots[i] = attr.evolve(snapshots[i], id=bytes([i]) * 20)
     swh_storage.snapshot_add(snapshots)
 
-    # Mark ranges as already checked
-    now = datetime.datetime.now(tz=datetime.timezone.utc)
-    for (object_type, range_start, range_end) in EXPECTED_PARTITIONS:
-        scrubber_db.checked_partition_upsert(
-            datastore, object_type, range_start, range_end, now
-        )
+    previous_partitions = set(scrubber_db.checked_partition_iter(config_id))
 
-    previous_partitions = set(scrubber_db.checked_partition_iter(datastore))
-
+    # rerun a checker for the same config, it should be a noop
     StorageChecker(
         db=scrubber_db,
         storage=swh_storage,
-        object_type="snapshot",
-        start_partition_id=0,
-        end_partition_id=1,
-        nb_partitions=1,
+        config_id=config_id,
     ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
@@ -324,7 +340,7 @@ def test_no_recheck(scrubber_db, datastore, swh_storage):
     ), "Detected corrupt objects in ranges that should have been skipped."
 
     # Make sure the DB was not changed (in particular, that timestamps were not bumped)
-    assert set(scrubber_db.checked_partition_iter(datastore)) == previous_partitions
+    assert set(scrubber_db.checked_partition_iter(config_id)) == previous_partitions
 
 
 def test_no_hole(scrubber_db, datastore, swh_storage):
@@ -334,19 +350,19 @@ def test_no_hole(scrubber_db, datastore, swh_storage):
     swh_storage.release_add([RELEASE1])
     swh_storage.snapshot_add([SNAPSHOT1])
 
-    for object_type in ("snapshot", "release", "revision", "directory"):
+    config = []
+    for object_type in OBJECT_TYPES:
+        config_id = scrubber_db.config_add("cfg2", datastore, object_type, 1)
+        config.append((object_type, config_id))
         StorageChecker(
             db=scrubber_db,
             storage=swh_storage,
-            object_type=object_type,
-            start_partition_id=0,
-            end_partition_id=1,
-            nb_partitions=1,
+            config_id=config_id,
         ).run()
 
     assert list(scrubber_db.missing_object_iter()) == []
 
-    assert_checked_ranges(scrubber_db, datastore, EXPECTED_PARTITIONS)
+    assert_checked_ranges(scrubber_db, config, EXPECTED_PARTITIONS)
 
 
 @pytest.mark.parametrize(
@@ -386,14 +402,16 @@ def test_one_hole(scrubber_db, datastore, swh_storage, missing_object):
 
     swh_storage.snapshot_add([SNAPSHOT1])
 
-    for object_type in ("snapshot", "release", "revision", "directory"):
+    config = []
+    for object_type in OBJECT_TYPES:
+        config_id = scrubber_db.config_add(
+            f"cfg_{object_type.name}", datastore, object_type, 1
+        )
+        config.append((object_type, config_id))
         StorageChecker(
             db=scrubber_db,
             storage=swh_storage,
-            object_type=object_type,
-            start_partition_id=0,
-            end_partition_id=1,
-            nb_partitions=1,
+            config_id=config_id,
         ).run()
 
     assert [mo.id for mo in scrubber_db.missing_object_iter()] == [missing_swhid]
@@ -402,7 +420,7 @@ def test_one_hole(scrubber_db, datastore, swh_storage, missing_object):
         for mor in scrubber_db.missing_object_reference_iter(missing_swhid)
     } == {(missing_swhid, reference_swhid) for reference_swhid in reference_swhids}
 
-    assert_checked_ranges(scrubber_db, datastore, EXPECTED_PARTITIONS)
+    assert_checked_ranges(scrubber_db, config, EXPECTED_PARTITIONS)
 
 
 def test_two_holes(scrubber_db, datastore, swh_storage):
@@ -411,14 +429,16 @@ def test_two_holes(scrubber_db, datastore, swh_storage):
     swh_storage.release_add([RELEASE1])
     swh_storage.snapshot_add([SNAPSHOT1])
 
-    for object_type in ("snapshot", "release", "revision", "directory"):
+    config = []
+    for object_type in OBJECT_TYPES:
+        config_id = scrubber_db.config_add(
+            f"cfg_{object_type.name}", datastore, object_type, 1
+        )
+        config.append((object_type, config_id))
         StorageChecker(
             db=scrubber_db,
             storage=swh_storage,
-            object_type=object_type,
-            start_partition_id=0,
-            end_partition_id=1,
-            nb_partitions=1,
+            config_id=config_id,
         ).run()
 
     assert {mo.id for mo in scrubber_db.missing_object_iter()} == {
@@ -434,4 +454,4 @@ def test_two_holes(scrubber_db, datastore, swh_storage):
         for mor in scrubber_db.missing_object_reference_iter(REVISION1.swhid())
     } == {RELEASE1.swhid()}
 
-    assert_checked_ranges(scrubber_db, datastore, EXPECTED_PARTITIONS)
+    assert_checked_ranges(scrubber_db, config, EXPECTED_PARTITIONS)

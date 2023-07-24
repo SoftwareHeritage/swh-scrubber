@@ -25,7 +25,7 @@ def invoke(
     runner = CliRunner()
 
     config = {
-        "scrubber_db": {"cls": "postgresql", "db": scrubber_db.conn.dsn},
+        "scrubber": {"cls": "postgresql", "db": scrubber_db.conn.dsn},
         "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
@@ -58,6 +58,92 @@ def invoke(
     return result
 
 
+def test_help_main(mocker, scrubber_db, swh_storage):
+    result = invoke(
+        scrubber_db,
+        [
+            "--help",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    output = result.output.splitlines(keepends=False)
+    msg = "Usage: scrubber [OPTIONS] COMMAND [ARGS]..."
+    assert output[0] == msg
+    assert "Commands:" in output
+    commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
+    assert commands == ["check", "fix", "locate"]
+
+
+def test_help_check(mocker, scrubber_db, swh_storage):
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "--help",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    output = result.output.splitlines(keepends=False)
+    msg = "Usage: scrubber check [OPTIONS] COMMAND [ARGS]..."
+    assert output[0] == msg
+    assert "Commands:" in output
+    commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
+    assert commands == ["init", "journal", "list", "stalled", "storage"]
+
+    # without a config file, --help should still work but with an extra message
+    result = CliRunner().invoke(
+        scrubber_cli_group, ["check", "--help"], catch_exceptions=False
+    )
+    output = result.output.splitlines(keepends=False)
+    msg = "WARNING: You must have a scrubber configured in your config file."
+    assert output[0] == msg
+    msg = "Usage: scrubber check [OPTIONS] COMMAND [ARGS]..."
+    assert output[2] == msg
+    assert "Commands:" in output
+    commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
+    assert commands == ["init", "journal", "list", "stalled", "storage"]
+
+
+def test_check_init(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
+    assert result.output.strip() == msg
+
+    # error: cfg name already exists
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "8",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 1, result.output
+    msg = "Error: Configuration cfg1 already exists"
+    assert result.output.strip() == msg
+
+
 def test_check_storage(mocker, scrubber_db, swh_storage):
     storage_checker = MagicMock()
     StorageChecker = mocker.patch(
@@ -67,21 +153,230 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         "swh.scrubber.get_scrubber_db", return_value=scrubber_db
     )
     result = invoke(
-        scrubber_db, ["check", "storage", "--object-type=snapshot"], storage=swh_storage
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
+    assert result.output.strip() == msg
+
+    result = invoke(scrubber_db, ["check", "storage", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    StorageChecker.assert_called_once_with(
+        db=scrubber_db,
+        config_id=1,
+        storage=StorageChecker.mock_calls[0][2]["storage"],
+        limit=0,
+    )
+    assert storage_checker.method_calls == [call.run()]
+
+    # using the config id instead of the config name
+    result = invoke(
+        scrubber_db, ["check", "storage", "--config-id", "1"], storage=swh_storage
     )
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
-    StorageChecker.assert_called_once_with(
-        db=scrubber_db,
-        storage=StorageChecker.mock_calls[0][2]["storage"],
-        object_type="snapshot",
-        start_partition_id=0,
-        end_partition_id=4096,
-        nb_partitions=4096,
+
+def test_check_list(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+    with swh_storage.db() as db:
+        dsn = db.conn.dsn
+
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
     )
-    assert storage_checker.method_calls == [call.run()]
+    assert result.exit_code == 0, result.output
+
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = f"[1] cfg1: snapshot, 4, storage:postgresql ({dsn})\n"
+    assert result.output == expected, result.output
+
+
+def test_check_stalled(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a partition started 20mn ago
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition VALUES (1, 0, now() - '20m'::interval, NULL);"
+        )
+
+    # there are no existing completed partition, defaults to 1h to be considered as stalled
+    # so a partition just added is not stalled
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a partition started 2 hours from now
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition VALUES (1, 1, now() - '2h'::interval, NULL);"
+        )
+    # it is considered as stalled by default
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+1:	stuck since today (2 hours)
+"""
+    assert result.output == expected, result.output
+
+    # explicitly specify a delay > 2h to be considered as stelles: no one stalled
+    result = invoke(
+        scrubber_db, ["check", "stalled", "--for", "8000", "cfg1"], storage=swh_storage
+    )
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a transaction that took 5mn to run
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 2, now() - '2h'::interval, now() - '1h55m'::interval);"
+        )
+    # so now both partitions 0 and 1 should be considered a stalled
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+0:	stuck since today (20 minutes)
+1:	stuck since today (2 hours)
+"""
+    assert result.output == expected, result.output
+
+
+def test_check_reset(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a few partitions
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 0, now() - '20m'::interval, NULL);"
+        )
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 1, now() - '2h'::interval, NULL);"
+        )
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 2, now() - '2h'::interval, now() - '1h55m'::interval);"
+        )
+
+    # partitions 0 and 1 are considered as stalled
+    result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+0:	stuck since today (20 minutes)
+1:	stuck since today (2 hours)
+"""
+    assert result.output == expected, result.output
+
+    # let's reset them
+    result = invoke(
+        scrubber_db, ["check", "stalled", "--reset", "cfg1"], storage=swh_storage
+    )
+    assert result.exit_code == 0, result.output
+    expected = """\
+Stuck partitions for cfg1 [id=1, type=snapshot]:
+0:	stuck since today (20 minutes)
+	partition reset
+1:	stuck since today (2 hours)
+	partition reset
+"""  # noqa: W191,E101
+    assert result.output == expected, result.output
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "SELECT partition_id, end_date "
+            "FROM checked_partition "
+            "WHERE config_id=1 AND start_date is NULL"
+        )
+        assert cur.fetchall() == [(0, None), (1, None)]
+
+    # for good measure, check the next few selected partitions, expected 0, 1 and 3
+    assert next(scrubber_db.checked_partition_iter_next(1)) == 0
+    assert next(scrubber_db.checked_partition_iter_next(1)) == 1
+    assert next(scrubber_db.checked_partition_iter_next(1)) == 3
 
 
 def test_check_journal(
