@@ -1,8 +1,11 @@
-swh-scrubber (1.0.3-1~swh1~bpo10+1) buster-swh; urgency=medium
+swh-scrubber (2.0.0-1~swh1) unstable-swh; urgency=medium
 
-  * Rebuild for buster-swh
+  * New upstream release 2.0.0     - (tagged by David Douard
+    <david.douard@sdfa3.org> on 2023-07-12 10:37:31 +0200)
+  * Upstream changes:     - v2.0.0     - New checker data model & cli.
+    - Warning: configuration file & deployment method must be updated.
 
- -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Tue, 18 Apr 2023 15:52:11 +0000
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Mon, 24 Jul 2023 09:15:05 +0000
 
 swh-scrubber (1.0.3-1~swh1) unstable-swh; urgency=medium
 

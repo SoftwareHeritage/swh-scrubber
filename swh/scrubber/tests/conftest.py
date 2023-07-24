@@ -9,13 +9,23 @@ import pytest
 from pytest_postgresql import factories
 
 from swh.core.db.db_utils import initialize_database_for_module
-from swh.scrubber.db import ScrubberDb
+from swh.model.swhids import ObjectType
+from swh.scrubber.db import Datastore, ScrubberDb
 
 scrubber_postgresql_proc = factories.postgresql_proc(
-    load=[partial(initialize_database_for_module, modname="scrubber", version=1)],
+    load=[partial(initialize_database_for_module, modname="scrubber", version=6)],
 )
 
 postgresql_scrubber = factories.postgresql("scrubber_postgresql_proc")
+
+OBJECT_TYPE = ObjectType.DIRECTORY
+PARTITION_ID = 2
+NB_PARTITIONS = 64
+
+
+@pytest.fixture
+def datastore():
+    return Datastore(package="storage", cls="postgresql", instance="service=swh-test")
 
 
 @pytest.fixture
@@ -24,4 +34,11 @@ def scrubber_db(postgresql_scrubber):
     with db.conn.cursor() as cur:
         cur.execute("TRUNCATE TABLE corrupt_object")
         cur.execute("TRUNCATE TABLE datastore CASCADE")
-    yield db
+    return db
+
+
+@pytest.fixture
+def config_id(scrubber_db, datastore):
+    return scrubber_db.config_add(
+        f"cfg_{OBJECT_TYPE}_{NB_PARTITIONS}", datastore, OBJECT_TYPE, NB_PARTITIONS
+    )
