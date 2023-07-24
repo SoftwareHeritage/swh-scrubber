@@ -5,11 +5,13 @@
 
 import os
 from typing import Optional
+import warnings
 
 import click
 
 from swh.core.cli import CONTEXT_SETTINGS
 from swh.core.cli import swh as swh_cli_group
+from swh.model.swhids import ObjectType
 
 
 @swh_cli_group.group(name="scrubber", context_settings=CONTEXT_SETTINGS)
@@ -29,8 +31,8 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
 
     Expected config format::
 
-        scrubber_db:
-            cls: local
+        scrubber:
+            cls: postgresql
             db: "service=..."    # libpq DSN
 
         # for storage checkers + origin locator only:
@@ -75,12 +77,22 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
     else:
         conf = {}
 
-    if "scrubber_db" not in conf:
-        ctx.fail("You must have a scrubber_db configured in your config file.")
-
     ctx.ensure_object(dict)
     ctx.obj["config"] = conf
-    ctx.obj["db"] = get_scrubber_db(**conf["scrubber_db"])
+    if "scrubber_db" in conf:
+        warnings.warn(
+            "the 'scrubber_db' configuration section has been renamed to 'scrubber'; "
+            f"please update your configuration file {config_file}",
+            DeprecationWarning,
+        )
+        conf["scrubber"] = conf.pop("scrubber_db")
+
+    if "scrubber" not in conf:
+        click.echo(
+            "WARNING: You must have a scrubber configured in your config file.\n"
+        )
+    else:
+        ctx.obj["db"] = get_scrubber_db(**conf["scrubber"])
 
 
 @scrubber_cli_group.group(name="check")
@@ -90,7 +102,7 @@ def scrubber_check_cli_group(ctx):
     pass
 
 
-@scrubber_check_cli_group.command(name="storage")
+@scrubber_check_cli_group.command(name="init")
 @click.option(
     "--object-type",
     type=click.Choice(
@@ -107,58 +119,208 @@ def scrubber_check_cli_group(ctx):
         ]
     ),
 )
-@click.option("--start-partition-id", default=0, type=int)
-@click.option("--end-partition-id", default=4096, type=int)
 @click.option("--nb-partitions", default=4096, type=int)
+@click.option("--name", default=None, type=str)
+@click.pass_context
+def scrubber_check_init(
+    ctx,
+    object_type: str,
+    nb_partitions: int,
+    name: Optional[str],
+):
+    """Initialise a scrubber check configuration for the datastore defined in the
+    configuration file and given object_type.
+
+    A checker configuration configuration consists simply in a set of:
+
+    - object type: the type of object being checked,
+    - number of partitions: the number of partitions the hash space is divided
+      in; must be a power of 2,
+    - name: an unique name for easier reference,
+
+    linked to the storage provided in the configuration file.
+
+    """
+    if not object_type or not name:
+        raise click.ClickException(
+            "Invalid parameters: you must provide the object type and configuration name"
+        )
+
+    conf = ctx.obj["config"]
+    if "storage" not in conf:
+        raise click.ClickException(
+            "You must have a storage configured in your config file."
+        )
+
+    db = ctx.obj["db"]
+    from swh.storage import get_storage
+
+    from .storage_checker import get_datastore
+
+    datastore = get_datastore(storage=get_storage(**conf["storage"]))
+    db.datastore_get_or_add(datastore)
+
+    if db.config_get_by_name(name):
+        raise click.ClickException(f"Configuration {name} already exists")
+
+    config_id = db.config_add(
+        name, datastore, getattr(ObjectType, object_type.upper()), nb_partitions
+    )
+    click.echo(
+        f"Created configuration {name} [{config_id}] for checking {object_type} "
+        f"in {datastore.cls} {datastore.package}"
+    )
+
+
+@scrubber_check_cli_group.command(name="list")
+@click.pass_context
+def scrubber_check_list(
+    ctx,
+):
+    """List the know configurations"""
+    conf = ctx.obj["config"]
+    if "storage" not in conf:
+        ctx.fail("You must have a storage configured in your config file.")
+
+    db = ctx.obj["db"]
+
+    for id_, cfg in db.config_iter():
+        ds = db.datastore_get(cfg.datastore_id)
+        if not ds:
+            click.echo(
+                f"[{id_}] {cfg.name}: Invalid configuration entry; datastore not found"
+            )
+        else:
+            click.echo(
+                f"[{id_}] {cfg.name}: {cfg.object_type}, {cfg.nb_partitions}, "
+                f"{ds.package}:{ds.cls} ({ds.instance})"
+            )
+
+
+@scrubber_check_cli_group.command(name="stalled")
+@click.argument(
+    "name",
+    type=str,
+    default=None,
+    required=False,  # can be given by config_id instead
+)
+@click.option(
+    "--config-id",
+    type=int,
+)
+@click.option(
+    "--for",
+    "delay",
+    type=str,
+    default="auto",
+    help="Delay for a partition to be considered as stuck; in seconds or 'auto'",
+)
+@click.option(
+    "--reset",
+    is_flag=True,
+    default=False,
+    help="Reset the stalled partition so it can be grabbed by a scrubber worker",
+)
+@click.pass_context
+def scrubber_check_stalled(
+    ctx, name: str, config_id: int, delay: Optional[str], reset: bool
+):
+    """List the stuck partitions for a given config"""
+    import datetime
+
+    from humanize import naturaldate, naturaldelta
+
+    db = ctx.obj["db"]
+    if name and config_id is None:
+        config_id = db.config_get_by_name(name)
+
+    if config_id is None:
+        raise click.ClickException("A valid configuration name/id must be set")
+
+    cfg = db.config_get(config_id)
+    delay_td: Optional[datetime.timedelta]
+    if delay == "auto":
+        delay_td = None
+    elif delay:
+        delay_td = datetime.timedelta(seconds=int(delay))
+    in_flight = list(db.checked_partition_get_stuck(config_id, delay_td))
+    if in_flight:
+        click.echo(
+            f"Stuck partitions for {cfg.name} [id={config_id}, type={cfg.object_type}]:"
+        )
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        for partition, stuck_since in in_flight:
+            click.echo(
+                f"{partition}:\tstuck since {naturaldate(stuck_since)} "
+                f"({naturaldelta(now-stuck_since)})"
+            )
+            if reset:
+                if db.checked_partition_reset(config_id, partition):
+                    click.echo("\tpartition reset")
+                else:
+                    click.echo("\tpartition NOT reset")
+
+    else:
+        click.echo(
+            f"No stuck partition found for {cfg.name} [id={config_id}, type={cfg.object_type}]"
+        )
+
+
+@scrubber_check_cli_group.command(name="storage")
+@click.argument(
+    "name",
+    type=str,
+    default=None,
+    required=False,  # can be given by config_id instead
+)
+@click.option(
+    "--config-id",
+    type=int,
+)
+@click.option("--limit", default=0, type=int)
 @click.pass_context
 def scrubber_check_storage(
     ctx,
-    object_type: str,
-    start_partition_id: int,
-    end_partition_id: int,
-    nb_partitions: int,
+    name: str,
+    config_id: int,
+    limit: int,
 ):
     """Reads a swh-storage instance, and reports corrupt objects to the scrubber DB.
 
     This runs a single thread; parallelism is achieved by running this command multiple
-    times, on disjoint ranges.
+    times.
+
+    This command references an existing scrubbing configuration (either by name
+    or by id); the configuration holds the object type, number of partitions
+    and the storage configuration this scrubbing session will check on.
 
     All objects of type ``object_type`` are ordered, and split into the given number
-    of partitions. When running in parallel, the number of partitions should be the
-    same for all workers or they may work on overlapping or non-exhaustive ranges.
+    of partitions.
 
-    Then, this process will check all partitions in the given
-    ``[start_partition_id, end_partition_id)`` range. When running in parallel, these
-    ranges should be set so that processes over the whole ``[0, nb_partitions)`` range.
+    Then, this process will check all partitions. The status of the ongoing
+    check session is stored in the database, so the number of concurrent
+    workers can be dynamically adjusted.
 
-    For example in order to have 8 threads checking revisions in parallel and with 64k
-    checkpoints (to recover on crashes), the CLI should be ran 8 times with these
-    parameters::
-
-        --object-type revision --nb-partitions 65536 --start-partition-id 0 --end-partition-id 8192
-        --object-type revision --nb-partitions 65536 --start-partition-id 8192 --end-partition-id 16384
-        --object-type revision --nb-partitions 65536 --start-partition-id 16384 --end-partition-id 24576
-        --object-type revision --nb-partitions 65536 --start-partition-id 24576 --end-partition-id 32768
-        --object-type revision --nb-partitions 65536 --start-partition-id 32768 --end-partition-id 40960
-        --object-type revision --nb-partitions 65536 --start-partition-id 40960 --end-partition-id 49152
-        --object-type revision --nb-partitions 65536 --start-partition-id 49152 --end-partition-id 57344
-        --object-type revision --nb-partitions 65536 --start-partition-id 57344 --end-partition-id 65536
     """  # noqa
     conf = ctx.obj["config"]
     if "storage" not in conf:
         ctx.fail("You must have a storage configured in your config file.")
+    db = ctx.obj["db"]
 
     from swh.storage import get_storage
 
     from .storage_checker import StorageChecker
 
+    if name and config_id is None:
+        config_id = db.config_get_by_name(name)
+
+    if config_id is None:
+        raise click.ClickExceptino("A valid configuration name/id must be set")
     checker = StorageChecker(
         db=ctx.obj["db"],
         storage=get_storage(**conf["storage"]),
-        object_type=object_type,
-        start_partition_id=start_partition_id,
-        end_partition_id=end_partition_id,
-        nb_partitions=nb_partitions,
+        config_id=config_id,
+        limit=limit,
     )
 
     checker.run()
