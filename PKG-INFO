@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: swh.scrubber
-Version: 2.0.0
+Version: 2.0.1
 Summary: Software Heritage Datastore Scrubber
 Home-page: https://forge.softwareheritage.org/diffusion/swh-scrubber
 Author: Software Heritage developers
