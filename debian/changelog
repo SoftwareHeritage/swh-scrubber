@@ -1,3 +1,13 @@
+swh-scrubber (2.0.1-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 2.0.1     - (tagged by Antoine R. Dumont
+    (@ardumont) <ardumont@softwareheritage.org> on 2023-07-26 10:55:36
+    +0200)
+  * Upstream changes:     - v2.0.1     - Fix test for older click
+    version
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Wed, 26 Jul 2023 09:00:40 +0000
+
 swh-scrubber (2.0.0-1~swh1) unstable-swh; urgency=medium
 
   * New upstream release 2.0.0     - (tagged by David Douard
