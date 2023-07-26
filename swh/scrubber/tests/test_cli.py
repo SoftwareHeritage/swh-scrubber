@@ -88,7 +88,11 @@ def test_help_check(mocker, scrubber_db, swh_storage):
     assert output[0] == msg
     assert "Commands:" in output
     commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
-    assert commands == ["init", "journal", "list", "stalled", "storage"]
+    # With older click version (e.g. 7.0-1), the text wrapping can be different,
+    # resulting in some docstring text included in this command list, so check we find
+    # the expected commands instead
+    for command in ["init", "journal", "list", "stalled", "storage"]:
+        assert command in commands
 
     # without a config file, --help should still work but with an extra message
     result = CliRunner().invoke(
@@ -101,7 +105,11 @@ def test_help_check(mocker, scrubber_db, swh_storage):
     assert output[2] == msg
     assert "Commands:" in output
     commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
-    assert commands == ["init", "journal", "list", "stalled", "storage"]
+    # With older click version (e.g. 7.0-1), the text wrapping can be different,
+    # resulting in some docstring text included in this command list, so check we find
+    # the expected commands instead
+    for command in ["init", "journal", "list", "stalled", "storage"]:
+        assert command in commands
 
 
 def test_check_init(mocker, scrubber_db, swh_storage):
