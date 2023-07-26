@@ -199,6 +199,13 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
     assert result.output == ""
 
 
+def test_check_storage_ko(mocker, scrubber_db, swh_storage):
+    # using the config id instead of the config name
+    result = invoke(scrubber_db, ["check", "storage"], storage=swh_storage)
+    assert result.exit_code == 1, result.output
+    assert result.output == "Error: A valid configuration name/id must be set\n"
+
+
 def test_check_list(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)

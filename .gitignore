@@ -12,3 +12,4 @@ dist/
 version.txt
 .mypy_cache/
 .vscode/
+/.hypothesis/
