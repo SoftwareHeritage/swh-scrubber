@@ -312,10 +312,18 @@ def scrubber_check_storage(
     from .storage_checker import StorageChecker
 
     if name and config_id is None:
-        config_id = db.config_get_by_name(name)
+        from .storage_checker import get_datastore
+
+        cfg = conf["storage"]
+        datastore = get_datastore(storage=get_storage(**cfg))
+        datastore_id = db.datastore_get_or_add(datastore)
+        config_id = db.config_get_by_name(name, datastore_id)
+    elif name is None and config_id is not None:
+        assert db.config_get(config_id) is not None
 
     if config_id is None:
         raise click.ClickException("A valid configuration name/id must be set")
+
     checker = StorageChecker(
         db=ctx.obj["db"],
         storage=get_storage(**conf["storage"]),
