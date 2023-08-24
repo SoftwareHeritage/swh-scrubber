@@ -2,6 +2,8 @@
 
 export PYBUILD_NAME=swh.scrubber
 export PYBUILD_TEST_ARGS=-vv -k 'not cassandra'
+export PYTEST_PLUGINS=swh.storage.pytest_plugin
+
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild
