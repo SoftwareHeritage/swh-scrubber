@@ -1,4 +1,4 @@
-# Copyright (C) 2022  The Software Heritage developers
+# Copyright (C) 2022-2023  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -201,18 +201,20 @@ class ScrubberDb(BaseDb):
     def config_get_by_name(
         self,
         name: str,
+        datastore: Optional[int] = None,
     ) -> Optional[int]:
         """Get the configuration entry for given name, if any"""
+        query_parts = ["SELECT id FROM check_config WHERE "]
+        where_parts = [" name = %s "]
+        query_params = [name]
+        if datastore:
+            where_parts.append(" datastore = %s ")
+            query_params.append(str(datastore))
+
+        query_parts.append(" AND ".join(where_parts))
+        query = "\n".join(query_parts)
         with self.transaction() as cur:
-            cur.execute(
-                """
-                SELECT id
-                    FROM check_config
-                    WHERE
-                        name=%s
-                """,
-                (name,),
-            )
+            cur.execute(query, query_params)
             if cur.rowcount:
                 res = cur.fetchone()
                 if res:
