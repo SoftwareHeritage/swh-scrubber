@@ -50,16 +50,41 @@ def test_config_get(datastore: Datastore, scrubber_db: ScrubberDb, config_id: in
         scrubber_db.config_get(cfg3 + 1)
 
 
+@pytest.fixture
+def datastore2():
+    return Datastore(package="storage", cls="postgresql", instance="service=swh-test-2")
+
+
+@pytest.fixture
+def config_id2(scrubber_db, datastore2):
+    return scrubber_db.config_add(
+        f"cfg_{OBJECT_TYPE}_{NB_PARTITIONS}", datastore2, OBJECT_TYPE, NB_PARTITIONS
+    )
+
+
 def test_checked_config_get_by_name(
-    datastore: Datastore, scrubber_db: ScrubberDb, config_id: int
+    datastore: Datastore,
+    datastore2: Datastore,
+    config_id: int,
+    config_id2: int,
+    scrubber_db: ScrubberDb,
 ):
+    assert datastore == scrubber_db.datastore_get(config_id)
+    assert datastore2 == scrubber_db.datastore_get(config_id2)
+
     cfg2 = scrubber_db.config_add("cfg2", datastore, ObjectType.SNAPSHOT, 42)
+    cfg2prime = scrubber_db.config_add("cfg2", datastore2, ObjectType.SNAPSHOT, 42)
     cfg3 = scrubber_db.config_add("cfg3", datastore, ObjectType.SNAPSHOT, 43)
 
     assert scrubber_db.config_get_by_name("cfg2") == cfg2
     assert scrubber_db.config_get_by_name("cfg3") == cfg3
 
+    # Check for unknown configuration
     assert scrubber_db.config_get_by_name("unknown config") is None
+
+    # Check for duplicated configurations
+    assert scrubber_db.config_get_by_name("cfg2", config_id) == cfg2
+    assert scrubber_db.config_get_by_name("cfg2", config_id2) == cfg2prime
 
 
 def test_datastore_get(datastore: Datastore, scrubber_db: ScrubberDb, config_id: int):
