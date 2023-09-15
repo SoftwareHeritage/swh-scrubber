@@ -26,12 +26,14 @@ def iter_corrupt_objects(
     while True:
         with db.conn, db.cursor() as cur:
             if origin_url:
-                corrupt_objects = db.corrupt_object_grab_by_origin(
-                    cur, origin_url, start_object, end_object
+                corrupt_objects = list(
+                    db.corrupt_object_grab_by_origin(
+                        cur, origin_url, start_object, end_object
+                    )
                 )
             else:
-                corrupt_objects = db.corrupt_object_grab_by_id(
-                    cur, start_object, end_object
+                corrupt_objects = list(
+                    db.corrupt_object_grab_by_id(cur, start_object, end_object)
                 )
             if corrupt_objects and corrupt_objects[0].id == start_object:
                 # TODO: don't needlessly fetch duplicate objects

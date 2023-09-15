@@ -11,76 +11,31 @@ from unittest.mock import MagicMock
 import zlib
 
 import attr
+import pytest
 
 from swh.journal.serializers import kafka_to_value, value_to_kafka
 from swh.model.hashutil import hash_to_bytes
 from swh.model.model import Directory, DirectoryEntry
-from swh.model.tests.swh_model_data import DIRECTORIES
-from swh.scrubber.db import CorruptObject, Datastore, FixedObject, ScrubberDb
+from swh.scrubber.db import (
+    ConfigEntry,
+    CorruptObject,
+    Datastore,
+    FixedObject,
+    ScrubberDb,
+)
 from swh.scrubber.fixer import Fixer
 
-(DIRECTORY,) = [dir_ for dir_ in DIRECTORIES if len(dir_.entries) > 1]
-
-# ORIGINAL_DIRECTORY represents a directory with entries in non-canonical order,
-# and a consistent hash. Its entries' were canonically reordered, but the original
-# order is still present in the raw manifest.
-_DIR = Directory(entries=tuple(reversed(DIRECTORY.entries)))
-ORIGINAL_DIRECTORY = Directory(
-    entries=(
-        DirectoryEntry(
-            name=b"dir1",
-            type="dir",
-            target=hash_to_bytes("4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
-            perms=0o040755,
-        ),
-        DirectoryEntry(
-            name=b"file1.ext",
-            type="file",
-            target=hash_to_bytes("86bc6b377e9d25f9d26777a4a28d08e63e7c5779"),
-            perms=0o644,
-        ),
-        DirectoryEntry(
-            name=b"subprepo1",
-            type="rev",
-            target=hash_to_bytes("c7f96242d73c267adc77c2908e64e0c1cb6a4431"),
-            perms=0o160000,
-        ),
-    ),
-    raw_manifest=(
-        b"tree 102\x00"
-        b"160000 subprepo1\x00\xc7\xf9bB\xd7<&z\xdcw\xc2\x90\x8ed\xe0\xc1\xcbjD1"
-        b"644 file1.ext\x00\x86\xbck7~\x9d%\xf9\xd2gw\xa4\xa2\x8d\x08\xe6>|Wy"
-        b"40755 dir1\x00K\x82]\xc6B\xcbn\xb9\xa0`\xe5K\xf8\xd6\x92\x88\xfb\xeeI\x04"
-    ),
-)
-
-# A directory with its entries in canonical order, but a hash computed as if
-# computed in the reverse order.
-# This happens when entries get normalized (either by the loader or accidentally
-# in swh-storage)
-CORRUPT_DIRECTORY = attr.evolve(ORIGINAL_DIRECTORY, raw_manifest=None)
+from .conftest import CORRUPT_DIRECTORY, ORIGINAL_DIRECTORY
 
 
-assert ORIGINAL_DIRECTORY != CORRUPT_DIRECTORY
-assert (
-    hash_to_bytes("61992617462fff81509bda4a24b54c96ea74a007")
-    == ORIGINAL_DIRECTORY.id
-    == CORRUPT_DIRECTORY.id
-)
-assert (
-    hash_to_bytes("81fda5b242e65fc81201e590d0f0ce5f582fbcdd")
-    == CORRUPT_DIRECTORY.compute_hash()
-    != CORRUPT_DIRECTORY.id
-)
-assert ORIGINAL_DIRECTORY.entries == CORRUPT_DIRECTORY.entries
-
-DATASTORE = Datastore(package="storage", cls="postgresql", instance="service=swh")
-CORRUPT_OBJECT = CorruptObject(
-    id=ORIGINAL_DIRECTORY.swhid(),
-    datastore=DATASTORE,
-    first_occurrence=datetime.datetime.now(tz=datetime.timezone.utc),
-    object_=value_to_kafka(CORRUPT_DIRECTORY.to_dict()),
-)
+@pytest.fixture
+def corrupt_object(config_entry) -> CorruptObject:
+    return CorruptObject(
+        id=ORIGINAL_DIRECTORY.swhid(),
+        config=config_entry,
+        first_occurrence=datetime.datetime.now(tz=datetime.timezone.utc),
+        object_=value_to_kafka(CORRUPT_DIRECTORY.to_dict()),
+    )
 
 
 def test_no_object(scrubber_db: ScrubberDb, mocker) -> None:
@@ -93,10 +48,12 @@ def test_no_object(scrubber_db: ScrubberDb, mocker) -> None:
         assert cur.fetchone() == (0,)
 
 
-def test_no_origin(scrubber_db: ScrubberDb, mocker) -> None:
+def test_no_origin(
+    scrubber_db: ScrubberDb, corrupt_object: CorruptObject, mocker
+) -> None:
     """There is no origin to recover objects from -> nothing happens"""
     scrubber_db.corrupt_object_add(
-        CORRUPT_OBJECT.id, CORRUPT_OBJECT.datastore, CORRUPT_OBJECT.object_
+        corrupt_object.id, corrupt_object.config, corrupt_object.object_
     )
 
     fixer = Fixer(db=scrubber_db)
@@ -107,18 +64,20 @@ def test_no_origin(scrubber_db: ScrubberDb, mocker) -> None:
         assert cur.fetchone() == (0,)
 
 
-def test_already_fixed(scrubber_db: ScrubberDb, mocker) -> None:
+def test_already_fixed(
+    scrubber_db: ScrubberDb, corrupt_object: CorruptObject, datastore: Datastore, mocker
+) -> None:
     """All corrupt objects are already fixed -> nothing happens"""
     fixed_object = FixedObject(
-        id=CORRUPT_OBJECT.id,
+        id=corrupt_object.id,
         object_=value_to_kafka(ORIGINAL_DIRECTORY.to_dict()),
         method="whatever means necessary",
     )
     scrubber_db.corrupt_object_add(
-        CORRUPT_OBJECT.id, CORRUPT_OBJECT.datastore, CORRUPT_OBJECT.object_
+        corrupt_object.id, corrupt_object.config, corrupt_object.object_
     )
     with scrubber_db.cursor() as cur:
-        scrubber_db.object_origin_add(cur, CORRUPT_OBJECT.id, ["http://example.org/"])
+        scrubber_db.object_origin_add(cur, corrupt_object.id, ["http://example.org/"])
         scrubber_db.fixed_object_add(cur, [fixed_object])
 
     subprocess_run = mocker.patch("subprocess.run")
@@ -147,7 +106,7 @@ def _run_fixer_with_clone(
     adds a corrupt object and an origin to the DB, mocks subprocess.run with the
     given function, and runs the fixer with caplog"""
     scrubber_db.corrupt_object_add(
-        corrupt_object.id, corrupt_object.datastore, corrupt_object.object_
+        corrupt_object.id, corrupt_object.config, corrupt_object.object_
     )
     with scrubber_db.cursor() as cur:
         scrubber_db.object_origin_add(cur, corrupt_object.id, ["http://example.org/"])
@@ -164,7 +123,9 @@ def _run_fixer_with_clone(
     subprocess_run.assert_called()
 
 
-def test_failed_clone(scrubber_db: ScrubberDb, mocker, caplog) -> None:
+def test_failed_clone(
+    scrubber_db: ScrubberDb, corrupt_object: CorruptObject, mocker, caplog
+) -> None:
     """Corrupt object found with an origin, but the origin's clone is broken somehow"""
     scrubber_db = MagicMock(wraps=scrubber_db)
 
@@ -172,7 +133,7 @@ def test_failed_clone(scrubber_db: ScrubberDb, mocker, caplog) -> None:
         scrubber_db,
         mocker,
         caplog,
-        corrupt_object=CORRUPT_OBJECT,
+        corrupt_object=corrupt_object,
         subprocess_run_side_effect=subprocess.CalledProcessError(1, "foo"),
     )
 
@@ -188,7 +149,9 @@ def test_failed_clone(scrubber_db: ScrubberDb, mocker, caplog) -> None:
     ) in caplog.record_tuples
 
 
-def test_empty_origin(scrubber_db: ScrubberDb, mocker, caplog) -> None:
+def test_empty_origin(
+    scrubber_db: ScrubberDb, corrupt_object: CorruptObject, mocker, caplog
+) -> None:
     """Corrupt object found with an origin, but the origin's clone is missing
     the object"""
     scrubber_db = MagicMock(wraps=scrubber_db)
@@ -203,7 +166,7 @@ def test_empty_origin(scrubber_db: ScrubberDb, mocker, caplog) -> None:
         scrubber_db,
         mocker,
         caplog,
-        corrupt_object=CORRUPT_OBJECT,
+        corrupt_object=corrupt_object,
         subprocess_run_side_effect=subprocess_run,
     )
 
@@ -220,7 +183,7 @@ def test_empty_origin(scrubber_db: ScrubberDb, mocker, caplog) -> None:
 
 
 def test_parseable_directory_from_origin(
-    scrubber_db: ScrubberDb, mocker, caplog
+    scrubber_db: ScrubberDb, corrupt_object: CorruptObject, mocker, caplog
 ) -> None:
     """Corrupt object found with an origin, and the object is found in the origin's
     clone as expected."""
@@ -241,7 +204,7 @@ def test_parseable_directory_from_origin(
         scrubber_db,
         mocker,
         caplog,
-        corrupt_object=CORRUPT_OBJECT,
+        corrupt_object=corrupt_object,
         subprocess_run_side_effect=subprocess_run,
     )
 
@@ -259,7 +222,9 @@ def test_parseable_directory_from_origin(
     assert caplog.record_tuples == []
 
 
-def test_unparseable_directory(scrubber_db: ScrubberDb, mocker, caplog) -> None:
+def test_unparseable_directory(
+    scrubber_db: ScrubberDb, config_entry: ConfigEntry, mocker, caplog
+) -> None:
     """Corrupt object found with an origin, and the object is found in the origin's
     clone as expected; but Dulwich cannot parse it.
     It was probably loaded by an old version of the loader that was more permissive,
@@ -286,7 +251,7 @@ def test_unparseable_directory(scrubber_db: ScrubberDb, mocker, caplog) -> None:
     corrupt_directory = attr.evolve(original_directory, raw_manifest=None)
     corrupt_object = CorruptObject(
         id=original_directory.swhid(),
-        datastore=DATASTORE,
+        config=config_entry,
         object_=value_to_kafka(corrupt_directory.to_dict()),
         first_occurrence=datetime.datetime.now(tz=datetime.timezone.utc),
     )

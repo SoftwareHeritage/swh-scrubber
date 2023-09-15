@@ -126,7 +126,6 @@ class StorageChecker:
         self.limit = limit
 
         self._config: Optional[ConfigEntry] = None
-        self._datastore: Optional[Datastore] = None
         self._statsd: Optional[Statsd] = None
 
     @property
@@ -142,18 +141,14 @@ class StorageChecker:
         return self.config.nb_partitions
 
     @property
-    def object_type(self) -> str:
+    def object_type(self) -> swhids.ObjectType:
         return self.config.object_type
 
     @property
     def datastore(self) -> Datastore:
         """Returns a :class:`Datastore` instance representing the swh-storage instance
         being checked."""
-        if self._datastore is None:
-            self._datastore = get_datastore(self.storage)
-            datastore_id = self.db.datastore_get_or_add(self._datastore)
-            assert self.config.datastore_id == datastore_id
-        return self._datastore
+        return self.config.datastore
 
     @property
     def statsd(self) -> Statsd:
@@ -173,7 +168,6 @@ class StorageChecker:
         """Runs on all objects of ``object_type`` in a partition between
         ``start_partition_id`` (inclusive) and ``end_partition_id`` (exclusive)
         """
-        object_type = getattr(swhids.ObjectType, self.object_type.upper())
         counter: Iterable[int] = count()
         if self.limit:
             counter = islice(counter, 0, self.limit)
@@ -187,7 +181,7 @@ class StorageChecker:
                 self.nb_partitions,
             )
 
-            self._check_partition(object_type, partition_id)
+            self._check_partition(self.object_type, partition_id)
 
             self.db.checked_partition_upsert(
                 self.config_id,
@@ -204,7 +198,9 @@ class StorageChecker:
         page_token = None
         while True:
             if object_type in (swhids.ObjectType.RELEASE, swhids.ObjectType.REVISION):
-                method = getattr(self.storage, f"{self.object_type}_get_partition")
+                method = getattr(
+                    self.storage, f"{self.object_type.name.lower()}_get_partition"
+                )
                 page = method(partition_id, self.nb_partitions, page_token=page_token)
                 objects = page.results
             elif object_type == swhids.ObjectType.DIRECTORY:
@@ -225,7 +221,7 @@ class StorageChecker:
                         self.statsd.increment("duplicate_directory_entries_total")
                         self.db.corrupt_object_add(
                             object_.swhid(),
-                            self.datastore,
+                            self.config,
                             value_to_kafka(object_.to_dict()),
                         )
                     objects.append(object_)
@@ -271,7 +267,7 @@ class StorageChecker:
                 self.statsd.increment("hash_mismatch_total")
                 self.db.corrupt_object_add(
                     object_.swhid(),
-                    self.datastore,
+                    self.config,
                     value_to_kafka(object_.to_dict()),
                 )
         if count:
@@ -380,7 +376,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.CONTENT, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, cnt_references[missing_id], self.datastore
+                missing_swhid, cnt_references[missing_id], self.config
             )
 
         for missing_id in missing_dirs:
@@ -388,7 +384,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.DIRECTORY, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, dir_references[missing_id], self.datastore
+                missing_swhid, dir_references[missing_id], self.config
             )
 
         for missing_id in missing_revs:
@@ -396,7 +392,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.REVISION, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, rev_references[missing_id], self.datastore
+                missing_swhid, rev_references[missing_id], self.config
             )
 
         for missing_id in missing_rels:
@@ -404,7 +400,7 @@ class StorageChecker:
                 object_type=swhids.ObjectType.RELEASE, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, rel_references[missing_id], self.datastore
+                missing_swhid, rel_references[missing_id], self.config
             )
 
         for missing_id in missing_snps:
@@ -412,5 +408,5 @@ class StorageChecker:
                 object_type=swhids.ObjectType.SNAPSHOT, object_id=missing_id
             )
             self.db.missing_object_add(
-                missing_swhid, snp_references[missing_id], self.datastore
+                missing_swhid, snp_references[missing_id], self.config
             )
