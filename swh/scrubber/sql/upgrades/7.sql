@@ -4,6 +4,16 @@
 -- description: Replace datastore column by a config_id one in missing_object,
 --              corrupt_object and missing_object_reference
 
+
+drop index check_config_unicity_idx;
+
+alter table check_config
+  add column   check_hashes boolean not null default TRUE,
+  add column   check_references boolean not null default TRUE;
+
+create unique index check_config_unicity_idx
+    on check_config(datastore, object_type, nb_partitions, check_hashes, check_references);
+
 --- First, we look if there are datastores used by several check_config entries
 --- (for a given object type); If there are, we cannot automatically upgrade
 --- the DB, since we cannot choose the config_id to use in missing_object,

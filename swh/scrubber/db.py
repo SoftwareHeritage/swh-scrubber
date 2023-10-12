@@ -40,6 +40,8 @@ class ConfigEntry:
     datastore: Datastore
     object_type: ObjectType
     nb_partitions: int
+    check_hashes: bool
+    check_references: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -136,6 +138,8 @@ class ScrubberDb(BaseDb):
         datastore: Datastore,
         object_type: ObjectType,
         nb_partitions: int,
+        check_hashes: bool = True,
+        check_references: bool = True,
     ) -> int:
         """Creates a configuration entry (and potentially a datastore);
 
@@ -143,6 +147,10 @@ class ScrubberDb(BaseDb):
         already exists.
         """
 
+        if not (check_hashes or check_references):
+            raise ValueError(
+                "At least one of the 2 check_hashes and check_references flags must be set"
+            )
         datastore_id = self.datastore_get_or_add(datastore)
         if not name:
             name = (
@@ -154,13 +162,19 @@ class ScrubberDb(BaseDb):
             "datastore_id": datastore_id,
             "object_type": object_type.name.lower(),
             "nb_partitions": nb_partitions,
+            "check_hashes": check_hashes,
+            "check_references": check_references,
         }
         with self.transaction() as cur:
             cur.execute(
                 """
                 WITH inserted AS (
-                    INSERT INTO check_config (name, datastore, object_type, nb_partitions)
-                    VALUES (%(name)s, %(datastore_id)s, %(object_type)s, %(nb_partitions)s)
+                    INSERT INTO check_config
+                      (name, datastore, object_type, nb_partitions,
+                       check_hashes, check_references)
+                    VALUES
+                      (%(name)s, %(datastore_id)s, %(object_type)s, %(nb_partitions)s,
+                       %(check_hashes)s, %(check_references)s)
                     RETURNING id
                 )
                 SELECT id
@@ -181,6 +195,7 @@ class ScrubberDb(BaseDb):
                 """
                     SELECT
                       cc.name, cc.object_type, cc.nb_partitions,
+                      cc.check_hashes, cc.check_references,
                       ds.package, ds.class, ds.instance
                     FROM check_config AS cc
                     INNER JOIN datastore As ds ON (cc.datastore=ds.id)
@@ -193,7 +208,16 @@ class ScrubberDb(BaseDb):
             res = cur.fetchone()
             if res is None:
                 raise ValueError(f"No config with id {config_id}")
-            (name, object_type, nb_partitions, ds_package, ds_class, ds_instance) = res
+            (
+                name,
+                object_type,
+                nb_partitions,
+                chk_hashes,
+                chk_refs,
+                ds_package,
+                ds_class,
+                ds_instance,
+            ) = res
             return ConfigEntry(
                 name=name,
                 datastore=Datastore(
@@ -201,6 +225,8 @@ class ScrubberDb(BaseDb):
                 ),
                 object_type=getattr(ObjectType, object_type.upper()),
                 nb_partitions=nb_partitions,
+                check_hashes=chk_hashes,
+                check_references=chk_refs,
             )
 
     def config_get_by_name(
@@ -233,6 +259,7 @@ class ScrubberDb(BaseDb):
                 """
                     SELECT
                       cc.id, cc.name, cc.object_type, cc.nb_partitions,
+                      cc.check_hashes, cc.check_references,
                       ds.package, ds.class, ds.instance
                     FROM check_config AS cc
                     INNER JOIN datastore AS ds ON (cc.datastore=ds.id)
@@ -245,6 +272,8 @@ class ScrubberDb(BaseDb):
                     name,
                     object_type,
                     nb_partitions,
+                    chk_hashes,
+                    chk_refs,
                     ds_package,
                     ds_class,
                     ds_instance,
@@ -258,6 +287,8 @@ class ScrubberDb(BaseDb):
                         ),
                         object_type=object_type,
                         nb_partitions=nb_partitions,
+                        check_hashes=chk_hashes,
+                        check_references=chk_refs,
                     ),
                 )
 
@@ -508,6 +539,8 @@ class ScrubberDb(BaseDb):
                 cc_object_type,
                 cc_nb_partitions,
                 cc_name,
+                cc_chk_hashes,
+                cc_chk_refs,
                 ds_package,
                 ds_class,
                 ds_instance,
@@ -523,6 +556,8 @@ class ScrubberDb(BaseDb):
                     ),
                     object_type=cc_object_type,
                     nb_partitions=cc_nb_partitions,
+                    check_hashes=cc_chk_hashes,
+                    check_references=cc_chk_refs,
                 ),
             )
 
@@ -534,6 +569,7 @@ class ScrubberDb(BaseDb):
                 SELECT
                     co.id, co.first_occurrence, co.object,
                     cc.object_type, cc.nb_partitions, cc.name,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM corrupt_object AS co
                 INNER JOIN check_config AS cc ON (cc.id=co.config_id)
@@ -562,6 +598,7 @@ class ScrubberDb(BaseDb):
                 SELECT
                     co.id, co.first_occurrence, co.object,
                     cc.object_type, cc.nb_partitions, cc.name,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM corrupt_object AS co
                 INNER JOIN check_config AS cc ON (cc.id=co.config_id)
@@ -599,6 +636,7 @@ class ScrubberDb(BaseDb):
             SELECT
                 co.id, co.first_occurrence, co.object,
                 cc.object_type, cc.nb_partitions, cc.name,
+                cc.check_hashes, cc.check_references,
                 ds.package, ds.class, ds.instance
             FROM corrupt_object AS co
             INNER JOIN check_config AS cc ON (cc.id=co.config_id)
@@ -642,6 +680,7 @@ class ScrubberDb(BaseDb):
             SELECT
                 co.id, co.first_occurrence, co.object,
                 cc.object_type, cc.nb_partitions, cc.name,
+                cc.check_hashes, cc.check_references,
                 ds.package, ds.class, ds.instance
             FROM corrupt_object AS co
             INNER JOIN check_config AS cc ON (cc.id=co.config_id)
@@ -719,6 +758,7 @@ class ScrubberDb(BaseDb):
                 SELECT
                     mo.id, mo.first_occurrence,
                     cc.name, cc.object_type, cc.nb_partitions,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM missing_object AS mo
                 INNER JOIN check_config AS cc ON (cc.id=mo.config_id)
@@ -733,6 +773,8 @@ class ScrubberDb(BaseDb):
                     cc_name,
                     cc_object_type,
                     cc_nb_partitions,
+                    cc_chk_hashes,
+                    cc_chk_refs,
                     ds_package,
                     ds_class,
                     ds_instance,
@@ -744,6 +786,8 @@ class ScrubberDb(BaseDb):
                         name=cc_name,
                         object_type=cc_object_type,
                         nb_partitions=cc_nb_partitions,
+                        check_hashes=cc_chk_hashes,
+                        check_references=cc_chk_refs,
                         datastore=Datastore(
                             package=ds_package, cls=ds_class, instance=ds_instance
                         ),
@@ -760,6 +804,7 @@ class ScrubberDb(BaseDb):
                 SELECT
                     mor.reference_id, mor.first_occurrence,
                     cc.name, cc.object_type, cc.nb_partitions,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM missing_object_reference AS mor
                 INNER JOIN check_config AS cc ON (cc.id=mor.config_id)
@@ -776,6 +821,8 @@ class ScrubberDb(BaseDb):
                     cc_name,
                     cc_object_type,
                     cc_nb_partitions,
+                    cc_chk_hashes,
+                    cc_chk_refs,
                     ds_package,
                     ds_class,
                     ds_instance,
@@ -788,6 +835,8 @@ class ScrubberDb(BaseDb):
                         name=cc_name,
                         object_type=cc_object_type,
                         nb_partitions=cc_nb_partitions,
+                        check_hashes=cc_chk_hashes,
+                        check_references=cc_chk_refs,
                         datastore=Datastore(
                             package=ds_package, cls=ds_class, instance=ds_instance
                         ),

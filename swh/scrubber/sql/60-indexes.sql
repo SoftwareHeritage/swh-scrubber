@@ -14,7 +14,7 @@ create unique index datastore_package_class_instance on datastore(package, class
 -------------------------------------
 
 create unique index check_config_pkey on check_config(id);
-create unique index check_config_unicity_idx on check_config(datastore, object_type, nb_partitions);
+create unique index check_config_unicity_idx on check_config(datastore, object_type, nb_partitions, check_hashes, check_references);
 alter table check_config add primary key using index check_config_pkey;
 
 -------------------------------------

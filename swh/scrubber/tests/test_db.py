@@ -26,6 +26,7 @@ def test_config_add(datastore: Datastore, scrubber_db: ScrubberDb, config_id: in
     cfg_snp2 = scrubber_db.config_add("cfg snp 2", datastore, ObjectType.SNAPSHOT, 43)
     assert cfg_snp2 == 3
 
+    # if not given, a config name is computed
     cfg_snp3 = scrubber_db.config_add(None, datastore, ObjectType.SNAPSHOT, 44)
     assert cfg_snp3 == 4
     assert (
@@ -39,15 +40,62 @@ def test_config_add(datastore: Datastore, scrubber_db: ScrubberDb, config_id: in
         scrubber_db.config_add("cfg4", datastore, OBJECT_TYPE, NB_PARTITIONS)
 
 
-def test_config_get(datastore: Datastore, scrubber_db: ScrubberDb, config_id: int):
-    cfg2 = scrubber_db.config_add("cfg2", datastore, ObjectType.SNAPSHOT, 42)
-    cfg3 = scrubber_db.config_add("cfg3", datastore, ObjectType.SNAPSHOT, 43)
+def test_config_add_flags(
+    datastore: Datastore, scrubber_db: ScrubberDb, config_id: int
+):
+    id_cfg2 = scrubber_db.config_add("cfg snp", datastore, ObjectType.SNAPSHOT, 42)
+    assert id_cfg2 == 2
+    id_cfg3 = scrubber_db.config_add(
+        "cfg3", datastore, ObjectType.SNAPSHOT, 43, check_hashes=False
+    )
+    assert id_cfg3 == 3
+    id_cfg4 = scrubber_db.config_add(
+        "cfg4", datastore, ObjectType.SNAPSHOT, 43, check_references=False
+    )
+    assert id_cfg4 == 4
 
-    assert scrubber_db.config_get(cfg2)
-    assert scrubber_db.config_get(cfg3)
+    # but cannot add another config entry with the same name, ds, objtype and part
+    # number but different flags
+    with pytest.raises(UniqueViolation):
+        scrubber_db.config_add(
+            "cfg4", datastore, ObjectType.SNAPSHOT, 43, check_hashes=False
+        )
 
     with pytest.raises(ValueError):
-        scrubber_db.config_get(cfg3 + 1)
+        scrubber_db.config_add(
+            "cfg4",
+            datastore,
+            OBJECT_TYPE,
+            NB_PARTITIONS,
+            check_hashes=False,
+            check_references=False,
+        )
+
+
+def test_config_get(datastore: Datastore, scrubber_db: ScrubberDb, config_id: int):
+    id_cfg2 = scrubber_db.config_add("cfg2", datastore, ObjectType.SNAPSHOT, 42)
+    id_cfg3 = scrubber_db.config_add(
+        "cfg3", datastore, ObjectType.SNAPSHOT, 43, False, True
+    )
+    id_cfg4 = scrubber_db.config_add(
+        "cfg4", datastore, ObjectType.SNAPSHOT, 43, True, False
+    )
+
+    cfg2 = scrubber_db.config_get(id_cfg2)
+    assert cfg2
+    assert cfg2.check_hashes is True
+    assert cfg2.check_references is True
+    cfg3 = scrubber_db.config_get(id_cfg3)
+    assert cfg3
+    assert cfg3.check_hashes is False
+    assert cfg3.check_references is True
+    cfg4 = scrubber_db.config_get(id_cfg4)
+    assert cfg4
+    assert cfg4.check_hashes is True
+    assert cfg4.check_references is False
+
+    with pytest.raises(ValueError):
+        scrubber_db.config_get(id_cfg4 + 1)
 
 
 @pytest.fixture

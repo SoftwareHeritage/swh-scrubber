@@ -145,6 +145,14 @@ class StorageChecker:
         return self.config.object_type
 
     @property
+    def check_hashes(self) -> bool:
+        return self.config.check_hashes
+
+    @property
+    def check_references(self) -> bool:
+        return self.config.check_references
+
+    @property
     def datastore(self) -> Datastore:
         """Returns a :class:`Datastore` instance representing the swh-storage instance
         being checked."""
@@ -237,18 +245,22 @@ class StorageChecker:
             else:
                 assert False, f"Unexpected object type: {object_type}"
 
-            with self.statsd.timed(
-                "batch_duration_seconds", tags={"operation": "check_hashes"}
-            ):
-                logger.debug("Checking %s %s object hashes", len(objects), object_type)
-                self.check_object_hashes(objects)
-            with self.statsd.timed(
-                "batch_duration_seconds", tags={"operation": "check_references"}
-            ):
-                logger.debug(
-                    "Checking %s %s object references", len(objects), object_type
-                )
-                self.check_object_references(objects)
+            if self.check_hashes:
+                with self.statsd.timed(
+                    "batch_duration_seconds", tags={"operation": "check_hashes"}
+                ):
+                    logger.debug(
+                        "Checking %s %s object hashes", len(objects), object_type
+                    )
+                    self.check_object_hashes(objects)
+            if self.check_references:
+                with self.statsd.timed(
+                    "batch_duration_seconds", tags={"operation": "check_references"}
+                ):
+                    logger.debug(
+                        "Checking %s %s object references", len(objects), object_type
+                    )
+                    self.check_object_references(objects)
 
             page_token = page.next_page_token
             if page_token is None:

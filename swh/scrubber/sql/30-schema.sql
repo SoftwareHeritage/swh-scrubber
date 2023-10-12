@@ -29,6 +29,8 @@ create table check_config
   datastore             int not null,
   object_type           object_type not null,
   nb_partitions         bigint not null,
+  check_hashes			boolean not null default TRUE,
+  check_references		boolean not null default TRUE,
   name                  text,
   comment               text
 );
@@ -37,6 +39,8 @@ comment on table check_config is 'Configuration of a checker for a given object 
 comment on column check_config.datastore is 'The datastore this checker config is about.';
 comment on column check_config.object_type is 'The type of checked objects.';
 comment on column check_config.nb_partitions is 'Number of partitions the set of objects is split into.';
+comment on column check_config.check_hashes is 'Flag: Check the hash of each object.';
+comment on column check_config.check_hashes is 'Flag: Check the references of each object.';
 
 -------------------------------------
 -- Checkpointing/progress tracking
