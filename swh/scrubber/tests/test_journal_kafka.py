@@ -67,7 +67,11 @@ def test_no_corruption(
     for object_type in ("directory", "revision", "release", "snapshot"):
         journal_cfg["group_id"] = gid + object_type
         config_id = scrubber_db.config_add(
-            f"cfg_{object_type}", datastore, getattr(ObjectType, object_type.upper()), 1
+            name=f"cfg_{object_type}",
+            datastore=datastore,
+            object_type=getattr(ObjectType, object_type.upper()),
+            nb_partitions=1,
+            check_references=False,
         )
         jc = JournalChecker(
             db=scrubber_db,
@@ -90,7 +94,11 @@ def test_corrupt_snapshot(
     corrupt_idx,
 ):
     config_id = scrubber_db.config_add(
-        "cfg_snapshot", datastore, ObjectType.SNAPSHOT, 1
+        name="cfg_snapshot",
+        datastore=datastore,
+        object_type=ObjectType.SNAPSHOT,
+        nb_partitions=1,
+        check_references=False,
     )
     snapshots = list(swh_model_data.SNAPSHOTS)
     snapshots[corrupt_idx] = attr.evolve(snapshots[corrupt_idx], id=b"\x00" * 20)
@@ -131,7 +139,11 @@ def test_corrupt_snapshots(
     datastore,
 ):
     config_id = scrubber_db.config_add(
-        "cfg_snapshot", datastore, ObjectType.SNAPSHOT, 1
+        name="cfg_snapshot",
+        datastore=datastore,
+        object_type=ObjectType.SNAPSHOT,
+        nb_partitions=1,
+        check_references=False,
     )
     snapshots = list(swh_model_data.SNAPSHOTS)
     for i in (0, 1):
@@ -155,3 +167,28 @@ def test_corrupt_snapshots(
             "swh:1:snp:0101010101010101010101010101010101010101",
         ]
     }
+
+
+def test_check_references_raises(
+    scrubber_db,
+    kafka_server,
+    kafka_prefix,
+    kafka_consumer_group,
+    datastore,
+):
+    config_id = scrubber_db.config_add(
+        name="cfg_snapshot",
+        datastore=datastore,
+        object_type=ObjectType.SNAPSHOT,
+        nb_partitions=1,
+        check_references=True,
+    )
+    journal_config = journal_client_config(
+        kafka_server, kafka_prefix, kafka_consumer_group
+    )
+    with pytest.raises(ValueError):
+        JournalChecker(
+            db=scrubber_db,
+            config_id=config_id,
+            journal=journal_config,
+        )

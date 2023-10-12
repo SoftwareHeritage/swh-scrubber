@@ -49,6 +49,12 @@ class JournalChecker:
         self.db = db
         self.config_id = config_id
 
+        if self.config.check_references:
+            raise ValueError(
+                "The journal checcker cannot check for references, please set "
+                "the 'check_references' to False in the config entry %s.",
+                self.config_id,
+            )
         self.journal_client_config = journal.copy()
         if "object_types" in self.journal_client_config:
             raise ValueError(
