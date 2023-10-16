@@ -1,3 +1,18 @@
+swh-scrubber (2.1.0-1~swh1) unstable-swh; urgency=medium
+
+  * New upstream release 2.1.0     - (tagged by David Douard
+    <david.douard@sdfa3.org> on 2023-10-16 15:42:49 +0200)
+  * Upstream changes:     - v2.1.0     - improve data model: use
+    config_id instead of datastore id in     - missing_object,
+    missing_object_reference and corrupt_object DB tables;     - This
+    comes with a non-trivial migration script, should be played     -
+    carefully if upgrading and existing DB.     - allow to run hash
+    configuration and reference validation checkers     - independently;
+    uses the 2 new `check_hashes` and `check_references`     - flags in
+    the configuration entry.
+
+ -- Software Heritage autobuilder (on jenkins-debian1) <jenkins@jenkins-debian1.internal.softwareheritage.org>  Mon, 16 Oct 2023 13:57:11 +0000
+
 swh-scrubber (2.0.3-1~swh2) unstable-swh; urgency=medium
 
   * Make tests ok
