@@ -11,11 +11,15 @@ import pytest
 from swh.journal.serializers import kafka_to_value
 from swh.journal.writer import get_journal_writer
 from swh.model import swhids
+from swh.model.swhids import ObjectType
 from swh.model.tests import swh_model_data
-from swh.scrubber.journal_checker import JournalChecker
+from swh.scrubber.db import Datastore
+from swh.scrubber.journal_checker import JournalChecker, get_datastore
 
 
-def journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group):
+def journal_client_config(
+    kafka_server: str, kafka_prefix: str, kafka_consumer_group: str
+):
     return dict(
         cls="kafka",
         brokers=kafka_server,
@@ -25,7 +29,7 @@ def journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group):
     )
 
 
-def journal_writer(kafka_server, kafka_prefix):
+def journal_writer(kafka_server: str, kafka_prefix: str):
     return get_journal_writer(
         cls="kafka",
         brokers=[kafka_server],
@@ -35,25 +39,67 @@ def journal_writer(kafka_server, kafka_prefix):
     )
 
 
-def test_no_corruption(scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group):
+@pytest.fixture
+def datastore(
+    kafka_server: str, kafka_prefix: str, kafka_consumer_group: str
+) -> Datastore:
+    journal_config = journal_client_config(
+        kafka_server, kafka_prefix, kafka_consumer_group
+    )
+    datastore = get_datastore(journal_config)
+    return datastore
+
+
+def test_no_corruption(
+    scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group, datastore
+):
     writer = journal_writer(kafka_server, kafka_prefix)
     writer.write_additions("directory", swh_model_data.DIRECTORIES)
     writer.write_additions("revision", swh_model_data.REVISIONS)
     writer.write_additions("release", swh_model_data.RELEASES)
     writer.write_additions("snapshot", swh_model_data.SNAPSHOTS)
 
-    JournalChecker(
-        db=scrubber_db,
-        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
-    ).run()
+    journal_cfg = journal_client_config(
+        kafka_server, kafka_prefix, kafka_consumer_group
+    )
+    gid = journal_cfg["group_id"] + "_"
+
+    for object_type in ("directory", "revision", "release", "snapshot"):
+        journal_cfg["group_id"] = gid + object_type
+        config_id = scrubber_db.config_add(
+            name=f"cfg_{object_type}",
+            datastore=datastore,
+            object_type=getattr(ObjectType, object_type.upper()),
+            nb_partitions=1,
+            check_references=False,
+        )
+        jc = JournalChecker(
+            db=scrubber_db,
+            config_id=config_id,
+            journal=journal_cfg,
+        )
+        jc.run()
+        jc.journal_client.close()
 
     assert list(scrubber_db.corrupt_object_iter()) == []
 
 
 @pytest.mark.parametrize("corrupt_idx", range(len(swh_model_data.SNAPSHOTS)))
 def test_corrupt_snapshot(
-    scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group, corrupt_idx
+    scrubber_db,
+    kafka_server,
+    kafka_prefix,
+    kafka_consumer_group,
+    datastore,
+    corrupt_idx,
 ):
+    config_id = scrubber_db.config_add(
+        name="cfg_snapshot",
+        datastore=datastore,
+        object_type=ObjectType.SNAPSHOT,
+        nb_partitions=1,
+        check_references=False,
+    )
     snapshots = list(swh_model_data.SNAPSHOTS)
     snapshots[corrupt_idx] = attr.evolve(snapshots[corrupt_idx], id=b"\x00" * 20)
 
@@ -63,6 +109,7 @@ def test_corrupt_snapshot(
     before_date = datetime.datetime.now(tz=datetime.timezone.utc)
     JournalChecker(
         db=scrubber_db,
+        config_id=config_id,
         journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
     ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -72,12 +119,8 @@ def test_corrupt_snapshot(
     assert corrupt_objects[0].id == swhids.CoreSWHID.from_string(
         "swh:1:snp:0000000000000000000000000000000000000000"
     )
-    assert corrupt_objects[0].datastore.package == "journal"
-    assert corrupt_objects[0].datastore.cls == "kafka"
-    assert (
-        corrupt_objects[0].datastore.instance
-        == f"brokers='{kafka_server}' prefix='{kafka_prefix}'"
-    )
+    assert corrupt_objects[0].config.datastore.package == "journal"
+    assert corrupt_objects[0].config.datastore.cls == "kafka"
     assert (
         before_date - datetime.timedelta(seconds=5)
         <= corrupt_objects[0].first_occurrence
@@ -89,8 +132,19 @@ def test_corrupt_snapshot(
 
 
 def test_corrupt_snapshots(
-    scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
+    scrubber_db,
+    kafka_server,
+    kafka_prefix,
+    kafka_consumer_group,
+    datastore,
 ):
+    config_id = scrubber_db.config_add(
+        name="cfg_snapshot",
+        datastore=datastore,
+        object_type=ObjectType.SNAPSHOT,
+        nb_partitions=1,
+        check_references=False,
+    )
     snapshots = list(swh_model_data.SNAPSHOTS)
     for i in (0, 1):
         snapshots[i] = attr.evolve(snapshots[i], id=bytes([i]) * 20)
@@ -100,6 +154,7 @@ def test_corrupt_snapshots(
 
     JournalChecker(
         db=scrubber_db,
+        config_id=config_id,
         journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
     ).run()
 
@@ -112,3 +167,28 @@ def test_corrupt_snapshots(
             "swh:1:snp:0101010101010101010101010101010101010101",
         ]
     }
+
+
+def test_check_references_raises(
+    scrubber_db,
+    kafka_server,
+    kafka_prefix,
+    kafka_consumer_group,
+    datastore,
+):
+    config_id = scrubber_db.config_add(
+        name="cfg_snapshot",
+        datastore=datastore,
+        object_type=ObjectType.SNAPSHOT,
+        nb_partitions=1,
+        check_references=True,
+    )
+    journal_config = journal_client_config(
+        kafka_server, kafka_prefix, kafka_consumer_group
+    )
+    with pytest.raises(ValueError):
+        JournalChecker(
+            db=scrubber_db,
+            config_id=config_id,
+            journal=journal_config,
+        )

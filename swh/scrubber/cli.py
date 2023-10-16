@@ -103,6 +103,7 @@ def scrubber_check_cli_group(ctx):
 
 
 @scrubber_check_cli_group.command(name="init")
+@click.argument("backend", type=click.Choice(["storage", "journal"]))
 @click.option(
     "--object-type",
     type=click.Choice(
@@ -121,25 +122,37 @@ def scrubber_check_cli_group(ctx):
 )
 @click.option("--nb-partitions", default=4096, type=int)
 @click.option("--name", default=None, type=str)
+@click.option("--check-hashes/--no-check-hashes", default=True)
+@click.option("--check-references/--no-check-references", default=None)
 @click.pass_context
 def scrubber_check_init(
     ctx,
+    backend: str,
     object_type: str,
     nb_partitions: int,
     name: Optional[str],
+    check_hashes: bool,
+    check_references: Optional[bool],
 ):
     """Initialise a scrubber check configuration for the datastore defined in the
     configuration file and given object_type.
 
     A checker configuration configuration consists simply in a set of:
 
-    - object type: the type of object being checked,
-    - number of partitions: the number of partitions the hash space is divided
+    - backend: the datastore type being scrubbed (storage or journal),
+
+    - object-type: the type of object being checked,
+
+    - nb-pertitions: the number of partitions the hash space is divided
       in; must be a power of 2,
+
     - name: an unique name for easier reference,
 
-    linked to the storage provided in the configuration file.
+    - check-hashes: flag (default to True) to select the hash validation step for
+      this scrubbing configuration,
 
+    - check-references: flag (default to True for storage and False for the journal
+      backend) to select the reference validation step for this scrubbing configuration.
     """
     if not object_type or not name:
         raise click.ClickException(
@@ -147,24 +160,47 @@ def scrubber_check_init(
         )
 
     conf = ctx.obj["config"]
-    if "storage" not in conf:
-        raise click.ClickException(
-            "You must have a storage configured in your config file."
-        )
-
     db = ctx.obj["db"]
-    from swh.storage import get_storage
 
-    from .storage_checker import get_datastore
+    if backend == "storage":
+        if check_references is None:
+            check_references = True
+        if "storage" not in conf:
+            raise click.ClickException(
+                "You must have a storage configured in your config file."
+            )
+        from swh.storage import get_storage
 
-    datastore = get_datastore(storage=get_storage(**conf["storage"]))
-    db.datastore_get_or_add(datastore)
+        from .storage_checker import get_datastore as get_storage_datastore
+
+        datastore = get_storage_datastore(storage=get_storage(**conf["storage"]))
+        db.datastore_get_or_add(datastore)
+    elif backend == "journal":
+        if check_references is None:
+            check_references = False
+        if "journal" not in conf:
+            raise click.ClickException(
+                "You must have a journal configured in your config file."
+            )
+        from .journal_checker import get_datastore as get_journal_datastore
+
+        datastore = get_journal_datastore(journal_cfg=conf["journal"])
+        db.datastore_get_or_add(datastore)
+    else:
+        raise click.ClickException(f"Backend type {backend} is not supported")
 
     if db.config_get_by_name(name):
         raise click.ClickException(f"Configuration {name} already exists")
 
+    assert check_references is not None
+
     config_id = db.config_add(
-        name, datastore, getattr(ObjectType, object_type.upper()), nb_partitions
+        name,
+        datastore,
+        getattr(ObjectType, object_type.upper()),
+        nb_partitions,
+        check_hashes=check_hashes,
+        check_references=check_references,
     )
     click.echo(
         f"Created configuration {name} [{config_id}] for checking {object_type} "
@@ -185,7 +221,7 @@ def scrubber_check_list(
     db = ctx.obj["db"]
 
     for id_, cfg in db.config_iter():
-        ds = db.datastore_get(cfg.datastore_id)
+        ds = cfg.datastore
         if not ds:
             click.echo(
                 f"[{id_}] {cfg.name}: Invalid configuration entry; datastore not found"
@@ -246,7 +282,8 @@ def scrubber_check_stalled(
     in_flight = list(db.checked_partition_get_stuck(config_id, delay_td))
     if in_flight:
         click.echo(
-            f"Stuck partitions for {cfg.name} [id={config_id}, type={cfg.object_type}]:"
+            f"Stuck partitions for {cfg.name} [id={config_id}, "
+            f"type={cfg.object_type.name.lower()}]:"
         )
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         for partition, stuck_since in in_flight:
@@ -262,7 +299,8 @@ def scrubber_check_stalled(
 
     else:
         click.echo(
-            f"No stuck partition found for {cfg.name} [id={config_id}, type={cfg.object_type}]"
+            f"No stuck partition found for {cfg.name} [id={config_id}, "
+            f"type={cfg.object_type.name.lower()}]"
         )
 
 
@@ -276,6 +314,7 @@ def scrubber_check_stalled(
 @click.option(
     "--config-id",
     type=int,
+    help="Config ID (is config name is not given as argument)",
 )
 @click.option("--limit", default=0, type=int)
 @click.pass_context
@@ -287,15 +326,15 @@ def scrubber_check_storage(
 ):
     """Reads a swh-storage instance, and reports corrupt objects to the scrubber DB.
 
-    This runs a single thread; parallelism is achieved by running this command multiple
-    times.
+    This runs a single thread; parallelism is achieved by running this command
+    multiple times.
 
     This command references an existing scrubbing configuration (either by name
     or by id); the configuration holds the object type, number of partitions
     and the storage configuration this scrubbing session will check on.
 
-    All objects of type ``object_type`` are ordered, and split into the given number
-    of partitions.
+    All objects of type ``object_type`` are ordered, and split into the given
+    number of partitions.
 
     Then, this process will check all partitions. The status of the ongoing
     check session is stored in the database, so the number of concurrent
@@ -312,10 +351,10 @@ def scrubber_check_storage(
     from .storage_checker import StorageChecker
 
     if name and config_id is None:
-        from .storage_checker import get_datastore
+        from .storage_checker import get_datastore as get_storage_datastore
 
         cfg = conf["storage"]
-        datastore = get_datastore(storage=get_storage(**cfg))
+        datastore = get_storage_datastore(storage=get_storage(**cfg))
         datastore_id = db.datastore_get_or_add(datastore)
         config_id = db.config_get_by_name(name, datastore_id)
     elif name is None and config_id is not None:
@@ -335,19 +374,45 @@ def scrubber_check_storage(
 
 
 @scrubber_check_cli_group.command(name="journal")
+@click.argument(
+    "name",
+    type=str,
+    default=None,
+    required=False,  # can be given by config_id instead
+)
+@click.option(
+    "--config-id",
+    type=int,
+    help="Config ID (is config name is not given as argument)",
+)
 @click.pass_context
-def scrubber_check_journal(ctx) -> None:
+def scrubber_check_journal(ctx, name, config_id) -> None:
     """Reads a complete kafka journal, and reports corrupt objects to
     the scrubber DB."""
     conf = ctx.obj["config"]
     if "journal" not in conf:
         ctx.fail("You must have a journal configured in your config file.")
+    db = ctx.obj["db"]
+
+    if name and config_id is None:
+        from .journal_checker import get_datastore as get_journal_datastore
+
+        cfg = conf["journal"]
+        datastore = get_journal_datastore(journal_cfg=cfg)
+        datastore_id = db.datastore_get_or_add(datastore)
+        config_id = db.config_get_by_name(name, datastore_id)
+    elif name is None and config_id is not None:
+        assert db.config_get(config_id) is not None
+
+    if config_id is None:
+        raise click.ClickException("A valid configuration name/id must be set")
 
     from .journal_checker import JournalChecker
 
     checker = JournalChecker(
         db=ctx.obj["db"],
         journal=conf["journal"],
+        config_id=config_id,
     )
 
     checker.run()

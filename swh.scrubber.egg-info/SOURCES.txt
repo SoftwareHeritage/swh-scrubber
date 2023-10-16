@@ -50,6 +50,7 @@ swh/scrubber/sql/upgrades/3.sql
 swh/scrubber/sql/upgrades/4.sql
 swh/scrubber/sql/upgrades/5.sql
 swh/scrubber/sql/upgrades/6.sql
+swh/scrubber/sql/upgrades/7.sql
 swh/scrubber/tests/__init__.py
 swh/scrubber/tests/conftest.py
 swh/scrubber/tests/storage_checker_tests.py
@@ -58,6 +59,11 @@ swh/scrubber/tests/test_db.py
 swh/scrubber/tests/test_fixer.py
 swh/scrubber/tests/test_init.py
 swh/scrubber/tests/test_journal_kafka.py
+swh/scrubber/tests/test_migration.py
 swh/scrubber/tests/test_origin_locator.py
 swh/scrubber/tests/test_storage_cassandra.py
 swh/scrubber/tests/test_storage_postgresql.py
+swh/scrubber/tests/data/cli/sql/10-init-all.sql
+swh/scrubber/tests/data/cli/sql/20-data.sql
+swh/scrubber/tests/data/cli/sql/upgrades/006.sql
+swh/scrubber/tests/data/cli/sql/upgrades/007.sql

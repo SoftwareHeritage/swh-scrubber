@@ -29,6 +29,8 @@ create table check_config
   datastore             int not null,
   object_type           object_type not null,
   nb_partitions         bigint not null,
+  check_hashes			boolean not null default TRUE,
+  check_references		boolean not null default TRUE,
   name                  text,
   comment               text
 );
@@ -37,6 +39,8 @@ comment on table check_config is 'Configuration of a checker for a given object 
 comment on column check_config.datastore is 'The datastore this checker config is about.';
 comment on column check_config.object_type is 'The type of checked objects.';
 comment on column check_config.nb_partitions is 'Number of partitions the set of objects is split into.';
+comment on column check_config.check_hashes is 'Flag: Check the hash of each object.';
+comment on column check_config.check_hashes is 'Flag: Check the references of each object.';
 
 -------------------------------------
 -- Checkpointing/progress tracking
@@ -63,13 +67,13 @@ comment on column checked_partition.end_date is 'Date the last scrub ended of th
 create table corrupt_object
 (
   id                    swhid not null,
-  datastore             int not null,
   object                bytea not null,
-  first_occurrence      timestamptz not null default now()
+  first_occurrence      timestamptz not null default now(),
+  config_id             int not null
 );
 
 comment on table corrupt_object is 'Each row identifies an object that was found to be corrupt';
-comment on column corrupt_object.datastore is 'Datastore the corrupt object was found in.';
+comment on column corrupt_object.config_id is 'The check configuration the corrupt object was found in.';
 comment on column corrupt_object.object is 'Corrupt object, as found in the datastore (possibly msgpack-encoded, using the journal''s serializer)';
 comment on column corrupt_object.first_occurrence is 'Moment the object was found to be corrupt for the first time';
 
@@ -77,26 +81,26 @@ comment on column corrupt_object.first_occurrence is 'Moment the object was foun
 create table missing_object
 (
   id                    swhid not null,
-  datastore             int not null,
-  first_occurrence      timestamptz not null default now()
+  first_occurrence      timestamptz not null default now(),
+  config_id             int not null
 );
 
 comment on table missing_object is 'Each row identifies an object that are missing but referenced by another object (aka "holes")';
-comment on column missing_object.datastore is 'Datastore where the hole is.';
+comment on column missing_object.config_id is 'Check configuration where the hole was found.';
 comment on column missing_object.first_occurrence is 'Moment the object was found to be corrupt for the first time';
 
 create table missing_object_reference
 (
   missing_id            swhid not null,
   reference_id          swhid not null,
-  datastore             int not null,
-  first_occurrence      timestamptz not null default now()
+  first_occurrence      timestamptz not null default now(),
+  config_id             int not null
 );
 
 comment on table missing_object_reference is 'Each row identifies an object that points to an object that does not exist (aka a "hole")';
 comment on column missing_object_reference.missing_id is 'SWHID of the missing object.';
 comment on column missing_object_reference.reference_id is 'SWHID of the object referencing the missing object.';
-comment on column missing_object_reference.datastore is 'Datastore where the referencing object is.';
+comment on column missing_object_reference.config_id is 'Check configuration for which the referencing object is.';
 comment on column missing_object_reference.first_occurrence is 'Moment the object was found to reference a missing object';
 
 

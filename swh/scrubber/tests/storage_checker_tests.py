@@ -149,7 +149,7 @@ def test_corrupt_snapshot(scrubber_db, datastore, swh_storage, corrupt_idx):
     assert corrupt_objects[0].id == swhids.CoreSWHID.from_string(
         "swh:1:snp:0000000000000000000000000000000000000000"
     )
-    assert corrupt_objects[0].datastore == datastore
+    assert corrupt_objects[0].config.datastore == datastore
     assert (
         before_date - datetime.timedelta(seconds=5)
         <= corrupt_objects[0].first_occurrence
@@ -291,7 +291,7 @@ def test_directory_duplicate_entries(scrubber_db, datastore, swh_storage):
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
     assert len(corrupt_objects) == 1
     assert corrupt_objects[0].id == invalid_directory.swhid()
-    assert corrupt_objects[0].datastore == datastore
+    assert corrupt_objects[0].config.datastore == datastore
     assert (
         before_date - datetime.timedelta(seconds=5)
         <= corrupt_objects[0].first_occurrence

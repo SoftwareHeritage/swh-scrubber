@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: swh.scrubber
-Version: 2.0.3
+Version: 2.1.0
 Summary: Software Heritage Datastore Scrubber
 Home-page: https://forge.softwareheritage.org/diffusion/swh-scrubber
 Author: Software Heritage developers
@@ -16,9 +16,24 @@ Classifier: Operating System :: OS Independent
 Classifier: Development Status :: 3 - Alpha
 Requires-Python: >=3.7
 Description-Content-Type: text/x-rst
-Provides-Extra: testing
 License-File: LICENSE
 License-File: AUTHORS
+Requires-Dist: dulwich
+Requires-Dist: humanize
+Requires-Dist: psycopg2
+Requires-Dist: tenacity
+Requires-Dist: swh.core[http]>=0.3
+Requires-Dist: swh.loader.git>=1.4.0
+Requires-Dist: swh.model>=5.0.0
+Requires-Dist: swh.storage>=1.12.0
+Requires-Dist: swh.journal>=1.3.0
+Provides-Extra: testing
+Requires-Dist: msgpack; extra == "testing"
+Requires-Dist: pytest; extra == "testing"
+Requires-Dist: pytest-mock; extra == "testing"
+Requires-Dist: pyyaml; extra == "testing"
+Requires-Dist: swh.core[testing]; extra == "testing"
+Requires-Dist: swh.graph; extra == "testing"
 
 Software Heritage - Datastore Scrubber
 ======================================
