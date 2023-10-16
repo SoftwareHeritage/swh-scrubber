@@ -14,7 +14,7 @@ create unique index datastore_package_class_instance on datastore(package, class
 -------------------------------------
 
 create unique index check_config_pkey on check_config(id);
-create unique index check_config_unicity_idx on check_config(datastore, object_type, nb_partitions);
+create unique index check_config_unicity_idx on check_config(datastore, object_type, nb_partitions, check_hashes, check_references);
 alter table check_config add primary key using index check_config_pkey;
 
 -------------------------------------
@@ -30,29 +30,29 @@ alter table checked_partition add primary key using index checked_partition_pkey
 
 -- corrupt_object
 
-alter table corrupt_object add constraint corrupt_object_datastore_fkey foreign key (datastore) references datastore(id) not valid;
-alter table corrupt_object validate constraint corrupt_object_datastore_fkey;
+alter table corrupt_object add constraint corrupt_object_config_fkey foreign key (config_id) references check_config(id) not valid;
+alter table corrupt_object validate constraint corrupt_object_config_fkey;
 
-create unique index corrupt_object_pkey on corrupt_object(id, datastore);
+create unique index corrupt_object_pkey on corrupt_object(id, config_id);
 alter table corrupt_object add primary key using index corrupt_object_pkey;
 
 
 -- missing_object
 
-alter table missing_object add constraint missing_object_datastore_fkey foreign key (datastore) references datastore(id) not valid;
-alter table missing_object validate constraint missing_object_datastore_fkey;
+alter table missing_object add constraint missing_object_config_fkey foreign key (config_id) references check_config(id) not valid;
+alter table missing_object validate constraint missing_object_config_fkey;
 
-create unique index missing_object_pkey on missing_object(id, datastore);
+create unique index missing_object_pkey on missing_object(id, config_id);
 alter table missing_object add primary key using index missing_object_pkey;
 
 
 -- missing_object_reference
 
-alter table missing_object_reference add constraint missing_object_reference_datastore_fkey foreign key (datastore) references datastore(id) not valid;
-alter table missing_object_reference validate constraint missing_object_reference_datastore_fkey;
+alter table missing_object_reference add constraint missing_object_reference_config_fkey foreign key (config_id) references check_config(id) not valid;
+alter table missing_object_reference validate constraint missing_object_reference_config_fkey;
 
-create unique index missing_object_reference_missing_id_reference_id_datastore on missing_object_reference(missing_id, reference_id, datastore);
-create unique index missing_object_reference_reference_id_missing_id_datastore on missing_object_reference(reference_id, missing_id, datastore);
+create unique index missing_object_reference_missing_id_reference_id_config on missing_object_reference(missing_id, reference_id, config_id);
+create unique index missing_object_reference_reference_id_missing_id_config on missing_object_reference(reference_id, missing_id, config_id);
 
 -------------------------------------
 -- Issue resolution

@@ -119,6 +119,7 @@ def test_check_init(mocker, scrubber_db, swh_storage):
         [
             "check",
             "init",
+            "storage",
             "--object-type",
             "snapshot",
             "--nb-partitions",
@@ -138,6 +139,7 @@ def test_check_init(mocker, scrubber_db, swh_storage):
         [
             "check",
             "init",
+            "storage",
             "--object-type",
             "snapshot",
             "--nb-partitions",
@@ -150,6 +152,84 @@ def test_check_init(mocker, scrubber_db, swh_storage):
     assert result.exit_code == 1, result.output
     msg = "Error: Configuration cfg1 already exists"
     assert result.output.strip() == msg
+
+
+def test_check_init_storage_flags(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    arg_list = [
+        "check",
+        "init",
+        "storage",
+        "--object-type",
+        "snapshot",
+        "--nb-partitions",
+        "4",
+        "--name",
+    ]
+
+    name = "cfg1"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is True
+    assert cfg_entry.check_references is True
+
+    name = "cfg2"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name, "--no-check-references"],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is True
+    assert cfg_entry.check_references is False
+
+    name = "cfg3"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name, "--no-check-hashes"],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is False
+    assert cfg_entry.check_references is True
+
+
+def test_check_init_journal_flags(
+    mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
+):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    arg_list = [
+        "check",
+        "init",
+        "journal",
+        "--object-type",
+        "snapshot",
+        "--name",
+    ]
+
+    name = "cfg1"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is True
+    assert cfg_entry.check_references is False
 
 
 def test_check_storage(mocker, scrubber_db, swh_storage):
@@ -165,6 +245,7 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         [
             "check",
             "init",
+            "storage",
             "--object-type",
             "snapshot",
             "--nb-partitions",
@@ -219,6 +300,7 @@ def test_check_list(mocker, scrubber_db, swh_storage):
         [
             "check",
             "init",
+            "storage",
             "--object-type",
             "snapshot",
             "--nb-partitions",
@@ -247,6 +329,7 @@ def test_check_stalled(mocker, scrubber_db, swh_storage):
         [
             "check",
             "init",
+            "storage",
             "--object-type",
             "snapshot",
             "--nb-partitions",
@@ -326,6 +409,7 @@ def test_check_reset(mocker, scrubber_db, swh_storage):
         [
             "check",
             "init",
+            "storage",
             "--object-type",
             "snapshot",
             "--nb-partitions",
@@ -406,7 +490,28 @@ def test_check_journal(
     )
     result = invoke(
         scrubber_db,
-        ["check", "journal"],
+        [
+            "check",
+            "init",
+            "journal",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in kafka journal"
+    assert result.output.strip() == msg
+
+    result = invoke(
+        scrubber_db,
+        ["check", "journal", "cfg1"],
         kafka_server=kafka_server,
         kafka_prefix=kafka_prefix,
         kafka_consumer_group=kafka_consumer_group,
@@ -414,7 +519,9 @@ def test_check_journal(
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    assert get_scrubber_db.call_count == 2
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+
     JournalChecker.assert_called_once_with(
         db=scrubber_db,
         journal={
@@ -424,6 +531,7 @@ def test_check_journal(
             "prefix": kafka_prefix,
             "stop_on_eof": True,
         },
+        config_id=1,
     )
     assert journal_checker.method_calls == [call.run()]
 

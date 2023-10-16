@@ -33,9 +33,21 @@ class Datastore:
 
 
 @dataclasses.dataclass(frozen=True)
+class ConfigEntry:
+    """Represents a datastore being scrubbed; eg. swh-storage or swh-journal."""
+
+    name: str
+    datastore: Datastore
+    object_type: ObjectType
+    nb_partitions: int
+    check_hashes: bool
+    check_references: bool
+
+
+@dataclasses.dataclass(frozen=True)
 class CorruptObject:
     id: CoreSWHID
-    datastore: Datastore
+    config: ConfigEntry
     first_occurrence: datetime.datetime
     object_: bytes
 
@@ -43,7 +55,7 @@ class CorruptObject:
 @dataclasses.dataclass(frozen=True)
 class MissingObject:
     id: CoreSWHID
-    datastore: Datastore
+    config: ConfigEntry
     first_occurrence: datetime.datetime
 
 
@@ -51,7 +63,7 @@ class MissingObject:
 class MissingObjectReference:
     missing_id: CoreSWHID
     reference_id: CoreSWHID
-    datastore: Datastore
+    config: ConfigEntry
     first_occurrence: datetime.datetime
 
 
@@ -63,18 +75,8 @@ class FixedObject:
     recovery_date: Optional[datetime.datetime] = None
 
 
-@dataclasses.dataclass(frozen=True)
-class ConfigEntry:
-    """Represents a datastore being scrubbed; eg. swh-storage or swh-journal."""
-
-    name: str
-    datastore_id: int
-    object_type: str
-    nb_partitions: int
-
-
 class ScrubberDb(BaseDb):
-    current_version = 6
+    current_version = 7
 
     ####################################
     # Shared tables
@@ -136,6 +138,8 @@ class ScrubberDb(BaseDb):
         datastore: Datastore,
         object_type: ObjectType,
         nb_partitions: int,
+        check_hashes: bool = True,
+        check_references: bool = True,
     ) -> int:
         """Creates a configuration entry (and potentially a datastore);
 
@@ -143,6 +147,10 @@ class ScrubberDb(BaseDb):
         already exists.
         """
 
+        if not (check_hashes or check_references):
+            raise ValueError(
+                "At least one of the 2 check_hashes and check_references flags must be set"
+            )
         datastore_id = self.datastore_get_or_add(datastore)
         if not name:
             name = (
@@ -154,13 +162,19 @@ class ScrubberDb(BaseDb):
             "datastore_id": datastore_id,
             "object_type": object_type.name.lower(),
             "nb_partitions": nb_partitions,
+            "check_hashes": check_hashes,
+            "check_references": check_references,
         }
         with self.transaction() as cur:
             cur.execute(
                 """
                 WITH inserted AS (
-                    INSERT INTO check_config (name, datastore, object_type, nb_partitions)
-                    VALUES (%(name)s, %(datastore_id)s, %(object_type)s, %(nb_partitions)s)
+                    INSERT INTO check_config
+                      (name, datastore, object_type, nb_partitions,
+                       check_hashes, check_references)
+                    VALUES
+                      (%(name)s, %(datastore_id)s, %(object_type)s, %(nb_partitions)s,
+                       %(check_hashes)s, %(check_references)s)
                     RETURNING id
                 )
                 SELECT id
@@ -179,9 +193,13 @@ class ScrubberDb(BaseDb):
         with self.transaction() as cur:
             cur.execute(
                 """
-                    SELECT name, datastore, object_type, nb_partitions
-                    FROM check_config
-                    WHERE id=%(config_id)s
+                    SELECT
+                      cc.name, cc.object_type, cc.nb_partitions,
+                      cc.check_hashes, cc.check_references,
+                      ds.package, ds.class, ds.instance
+                    FROM check_config AS cc
+                    INNER JOIN datastore As ds ON (cc.datastore=ds.id)
+                    WHERE cc.id=%(config_id)s
                 """,
                 {
                     "config_id": config_id,
@@ -190,12 +208,25 @@ class ScrubberDb(BaseDb):
             res = cur.fetchone()
             if res is None:
                 raise ValueError(f"No config with id {config_id}")
-            (name, datastore_id, object_type, nb_partitions) = res
+            (
+                name,
+                object_type,
+                nb_partitions,
+                chk_hashes,
+                chk_refs,
+                ds_package,
+                ds_class,
+                ds_instance,
+            ) = res
             return ConfigEntry(
                 name=name,
-                datastore_id=datastore_id,
-                object_type=object_type,
+                datastore=Datastore(
+                    package=ds_package, cls=ds_class, instance=ds_instance
+                ),
+                object_type=getattr(ObjectType, object_type.upper()),
                 nb_partitions=nb_partitions,
+                check_hashes=chk_hashes,
+                check_references=chk_refs,
             )
 
     def config_get_by_name(
@@ -226,20 +257,38 @@ class ScrubberDb(BaseDb):
         with self.transaction() as cur:
             cur.execute(
                 """
-                    SELECT id, name, datastore, object_type, nb_partitions
-                    FROM check_config
+                    SELECT
+                      cc.id, cc.name, cc.object_type, cc.nb_partitions,
+                      cc.check_hashes, cc.check_references,
+                      ds.package, ds.class, ds.instance
+                    FROM check_config AS cc
+                    INNER JOIN datastore AS ds ON (cc.datastore=ds.id)
                 """,
             )
             for row in cur:
                 assert row is not None
-                (id_, name, datastore_id, object_type, nb_partitions) = row
+                (
+                    id_,
+                    name,
+                    object_type,
+                    nb_partitions,
+                    chk_hashes,
+                    chk_refs,
+                    ds_package,
+                    ds_class,
+                    ds_instance,
+                ) = row
                 yield (
                     id_,
                     ConfigEntry(
                         name=name,
-                        datastore_id=datastore_id,
+                        datastore=Datastore(
+                            package=ds_package, cls=ds_class, instance=ds_instance
+                        ),
                         object_type=object_type,
                         nb_partitions=nb_partitions,
+                        check_hashes=chk_hashes,
+                        check_references=chk_refs,
                     ),
                 )
 
@@ -464,18 +513,52 @@ class ScrubberDb(BaseDb):
     def corrupt_object_add(
         self,
         id: CoreSWHID,
-        datastore: Datastore,
+        config: ConfigEntry,
         serialized_object: bytes,
     ) -> None:
-        datastore_id = self.datastore_get_or_add(datastore)
+        config_id = self.config_get_by_name(config.name)
+        assert config_id is not None
         with self.transaction() as cur:
             cur.execute(
                 """
-                INSERT INTO corrupt_object (id, datastore, object)
+                INSERT INTO corrupt_object (id, config_id, object)
                 VALUES (%s, %s, %s)
                 ON CONFLICT DO NOTHING
                 """,
-                (str(id), datastore_id, serialized_object),
+                (str(id), config_id, serialized_object),
+            )
+
+    def _corrupt_object_list_from_cursor(
+        self, cur: psycopg2.extensions.cursor
+    ) -> Iterator[CorruptObject]:
+        for row in cur:
+            (
+                id,
+                first_occurrence,
+                object_,
+                cc_object_type,
+                cc_nb_partitions,
+                cc_name,
+                cc_chk_hashes,
+                cc_chk_refs,
+                ds_package,
+                ds_class,
+                ds_instance,
+            ) = row
+            yield CorruptObject(
+                id=CoreSWHID.from_string(id),
+                first_occurrence=first_occurrence,
+                object_=object_,
+                config=ConfigEntry(
+                    name=cc_name,
+                    datastore=Datastore(
+                        package=ds_package, cls=ds_class, instance=ds_instance
+                    ),
+                    object_type=cc_object_type,
+                    nb_partitions=cc_nb_partitions,
+                    check_hashes=cc_chk_hashes,
+                    check_references=cc_chk_refs,
+                ),
             )
 
     def corrupt_object_iter(self) -> Iterator[CorruptObject]:
@@ -485,48 +568,22 @@ class ScrubberDb(BaseDb):
                 """
                 SELECT
                     co.id, co.first_occurrence, co.object,
+                    cc.object_type, cc.nb_partitions, cc.name,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM corrupt_object AS co
-                INNER JOIN datastore AS ds ON (ds.id=co.datastore)
+                INNER JOIN check_config AS cc ON (cc.id=co.config_id)
+                INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
                 """
             )
-
-            for row in cur:
-                (id, first_occurrence, object_, ds_package, ds_class, ds_instance) = row
-                yield CorruptObject(
-                    id=CoreSWHID.from_string(id),
-                    first_occurrence=first_occurrence,
-                    object_=object_,
-                    datastore=Datastore(
-                        package=ds_package, cls=ds_class, instance=ds_instance
-                    ),
-                )
-
-    def _corrupt_object_list_from_cursor(
-        self, cur: psycopg2.extensions.cursor
-    ) -> List[CorruptObject]:
-        results = []
-        for row in cur:
-            (id, first_occurrence, object_, ds_package, ds_class, ds_instance) = row
-            results.append(
-                CorruptObject(
-                    id=CoreSWHID.from_string(id),
-                    first_occurrence=first_occurrence,
-                    object_=object_,
-                    datastore=Datastore(
-                        package=ds_package, cls=ds_class, instance=ds_instance
-                    ),
-                )
-            )
-
-        return results
+            yield from self._corrupt_object_list_from_cursor(cur)
 
     def corrupt_object_get(
         self,
         start_id: CoreSWHID,
         end_id: CoreSWHID,
         limit: int = 100,
-    ) -> List[CorruptObject]:
+    ) -> Iterator[CorruptObject]:
         """Yields a page of records in the 'corrupt_object' table, ordered by id.
 
         Arguments:
@@ -540,9 +597,12 @@ class ScrubberDb(BaseDb):
                 """
                 SELECT
                     co.id, co.first_occurrence, co.object,
+                    cc.object_type, cc.nb_partitions, cc.name,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM corrupt_object AS co
-                INNER JOIN datastore AS ds ON (ds.id=co.datastore)
+                INNER JOIN check_config AS cc ON (cc.id=co.config_id)
+                INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
                 WHERE
                     co.id >= %s
                     AND co.id <= %s
@@ -551,7 +611,7 @@ class ScrubberDb(BaseDb):
                 """,
                 (str(start_id), str(end_id), limit),
             )
-            return self._corrupt_object_list_from_cursor(cur)
+            yield from self._corrupt_object_list_from_cursor(cur)
 
     def corrupt_object_grab_by_id(
         self,
@@ -559,7 +619,7 @@ class ScrubberDb(BaseDb):
         start_id: CoreSWHID,
         end_id: CoreSWHID,
         limit: int = 100,
-    ) -> List[CorruptObject]:
+    ) -> Iterator[CorruptObject]:
         """Returns a page of records in the 'corrupt_object' table for a fixer,
         ordered by id
 
@@ -575,9 +635,12 @@ class ScrubberDb(BaseDb):
             """
             SELECT
                 co.id, co.first_occurrence, co.object,
+                cc.object_type, cc.nb_partitions, cc.name,
+                cc.check_hashes, cc.check_references,
                 ds.package, ds.class, ds.instance
             FROM corrupt_object AS co
-            INNER JOIN datastore AS ds ON (ds.id=co.datastore)
+            INNER JOIN check_config AS cc ON (cc.id=co.config_id)
+            INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
             WHERE
                 co.id >= %(start_id)s
                 AND co.id <= %(end_id)s
@@ -592,7 +655,7 @@ class ScrubberDb(BaseDb):
                 limit=limit,
             ),
         )
-        return self._corrupt_object_list_from_cursor(cur)
+        yield from self._corrupt_object_list_from_cursor(cur)
 
     def corrupt_object_grab_by_origin(
         self,
@@ -601,7 +664,7 @@ class ScrubberDb(BaseDb):
         start_id: Optional[CoreSWHID] = None,
         end_id: Optional[CoreSWHID] = None,
         limit: int = 100,
-    ) -> List[CorruptObject]:
+    ) -> Iterator[CorruptObject]:
         """Returns a page of records in the 'corrupt_object' table for a fixer,
         ordered by id
 
@@ -616,9 +679,12 @@ class ScrubberDb(BaseDb):
             """
             SELECT
                 co.id, co.first_occurrence, co.object,
+                cc.object_type, cc.nb_partitions, cc.name,
+                cc.check_hashes, cc.check_references,
                 ds.package, ds.class, ds.instance
             FROM corrupt_object AS co
-            INNER JOIN datastore AS ds ON (ds.id=co.datastore)
+            INNER JOIN check_config AS cc ON (cc.id=co.config_id)
+            INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
             INNER JOIN object_origin AS oo ON (oo.object_id=co.id)
             WHERE
                 (co.id >= %(start_id)s OR %(start_id)s IS NULL)
@@ -636,13 +702,13 @@ class ScrubberDb(BaseDb):
                 limit=limit,
             ),
         )
-        return self._corrupt_object_list_from_cursor(cur)
+        yield from self._corrupt_object_list_from_cursor(cur)
 
     def missing_object_add(
         self,
         id: CoreSWHID,
         reference_ids: Iterable[CoreSWHID],
-        datastore: Datastore,
+        config: ConfigEntry,
     ) -> None:
         """
         Adds a "hole" to the inventory, ie. an object missing from a datastore
@@ -661,25 +727,25 @@ class ScrubberDb(BaseDb):
         """
         if not reference_ids:
             raise ValueError("reference_ids is empty")
-        datastore_id = self.datastore_get_or_add(datastore)
+        config_id = self.config_get_by_name(config.name)
         with self.transaction() as cur:
             cur.execute(
                 """
-                INSERT INTO missing_object (id, datastore)
+                INSERT INTO missing_object (id, config_id)
                 VALUES (%s, %s)
                 ON CONFLICT DO NOTHING
                 """,
-                (str(id), datastore_id),
+                (str(id), config_id),
             )
             psycopg2.extras.execute_batch(
                 cur,
                 """
-                INSERT INTO missing_object_reference (missing_id, reference_id, datastore)
+                INSERT INTO missing_object_reference (missing_id, reference_id, config_id)
                 VALUES (%s, %s, %s)
                 ON CONFLICT DO NOTHING
                 """,
                 [
-                    (str(id), str(reference_id), datastore_id)
+                    (str(id), str(reference_id), config_id)
                     for reference_id in reference_ids
                 ],
             )
@@ -691,19 +757,40 @@ class ScrubberDb(BaseDb):
                 """
                 SELECT
                     mo.id, mo.first_occurrence,
+                    cc.name, cc.object_type, cc.nb_partitions,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM missing_object AS mo
-                INNER JOIN datastore AS ds ON (ds.id=mo.datastore)
+                INNER JOIN check_config AS cc ON (cc.id=mo.config_id)
+                INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
                 """
             )
 
             for row in cur:
-                (id, first_occurrence, ds_package, ds_class, ds_instance) = row
+                (
+                    id,
+                    first_occurrence,
+                    cc_name,
+                    cc_object_type,
+                    cc_nb_partitions,
+                    cc_chk_hashes,
+                    cc_chk_refs,
+                    ds_package,
+                    ds_class,
+                    ds_instance,
+                ) = row
                 yield MissingObject(
                     id=CoreSWHID.from_string(id),
                     first_occurrence=first_occurrence,
-                    datastore=Datastore(
-                        package=ds_package, cls=ds_class, instance=ds_instance
+                    config=ConfigEntry(
+                        name=cc_name,
+                        object_type=cc_object_type,
+                        nb_partitions=cc_nb_partitions,
+                        check_hashes=cc_chk_hashes,
+                        check_references=cc_chk_refs,
+                        datastore=Datastore(
+                            package=ds_package, cls=ds_class, instance=ds_instance
+                        ),
                     ),
                 )
 
@@ -716,9 +803,12 @@ class ScrubberDb(BaseDb):
                 """
                 SELECT
                     mor.reference_id, mor.first_occurrence,
+                    cc.name, cc.object_type, cc.nb_partitions,
+                    cc.check_hashes, cc.check_references,
                     ds.package, ds.class, ds.instance
                 FROM missing_object_reference AS mor
-                INNER JOIN datastore AS ds ON (ds.id=mor.datastore)
+                INNER JOIN check_config AS cc ON (cc.id=mor.config_id)
+                INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
                 WHERE mor.missing_id=%s
                 """,
                 (str(missing_id),),
@@ -728,6 +818,11 @@ class ScrubberDb(BaseDb):
                 (
                     reference_id,
                     first_occurrence,
+                    cc_name,
+                    cc_object_type,
+                    cc_nb_partitions,
+                    cc_chk_hashes,
+                    cc_chk_refs,
                     ds_package,
                     ds_class,
                     ds_instance,
@@ -736,8 +831,15 @@ class ScrubberDb(BaseDb):
                     missing_id=missing_id,
                     reference_id=CoreSWHID.from_string(reference_id),
                     first_occurrence=first_occurrence,
-                    datastore=Datastore(
-                        package=ds_package, cls=ds_class, instance=ds_instance
+                    config=ConfigEntry(
+                        name=cc_name,
+                        object_type=cc_object_type,
+                        nb_partitions=cc_nb_partitions,
+                        check_hashes=cc_chk_hashes,
+                        check_references=cc_chk_refs,
+                        datastore=Datastore(
+                            package=ds_package, cls=ds_class, instance=ds_instance
+                        ),
                     ),
                 )
 

@@ -3,7 +3,6 @@
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
 
-import datetime
 import logging
 from unittest.mock import MagicMock
 
@@ -12,22 +11,14 @@ import pytest
 from swh.graph.http_naive_client import NaiveClient as NaiveGraphClient
 from swh.model.model import Origin
 from swh.model.swhids import CoreSWHID
-from swh.scrubber.db import CorruptObject, Datastore
 from swh.scrubber.origin_locator import OriginLocator
-
-CORRUPT_OBJECT = CorruptObject(
-    id=CoreSWHID.from_string("swh:1:cnt:" + "f" * 40),
-    datastore=Datastore(package="storage", cls="postgresql", instance="service=swh"),
-    first_occurrence=datetime.datetime.now(tz=datetime.timezone.utc),
-    object_=b"blah",
-)
 
 
 @pytest.mark.parametrize("insert", [False, True])
-def test_no_objects(scrubber_db, insert):
+def test_no_objects(scrubber_db, corrupt_object, insert):
     if insert:
         scrubber_db.corrupt_object_add(
-            CORRUPT_OBJECT.id, CORRUPT_OBJECT.datastore, CORRUPT_OBJECT.object_
+            corrupt_object.id, corrupt_object.config, corrupt_object.object_
         )
 
     graph = MagicMock()
@@ -37,8 +28,8 @@ def test_no_objects(scrubber_db, insert):
         graph=graph,
         storage=storage,
         # this range does not contain the object above
-        start_object=CoreSWHID.from_string("swh:1:cnt:00" + "00" * 19),
-        end_object=CoreSWHID.from_string("swh:1:cnt:f0" + "00" * 19),
+        start_object=CoreSWHID.from_string("swh:1:dir:00" + "00" * 19),
+        end_object=CoreSWHID.from_string("swh:1:dir:60" + "00" * 19),
     )
 
     locator.run()
@@ -51,9 +42,9 @@ def test_no_objects(scrubber_db, insert):
         assert cur.fetchone() == (0,)
 
 
-def test_object_not_in_graph(scrubber_db):
+def test_object_not_in_graph(scrubber_db, corrupt_object):
     scrubber_db.corrupt_object_add(
-        CORRUPT_OBJECT.id, CORRUPT_OBJECT.datastore, CORRUPT_OBJECT.object_
+        corrupt_object.id, corrupt_object.config, corrupt_object.object_
     )
 
     graph = NaiveGraphClient(nodes=[], edges=[])
@@ -62,8 +53,8 @@ def test_object_not_in_graph(scrubber_db):
         db=scrubber_db,
         graph=graph,
         storage=storage,
-        start_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),
-        end_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),
+        start_object=CoreSWHID.from_string("swh:1:dir:" + "00" * 20),
+        end_object=CoreSWHID.from_string("swh:1:dir:" + "00" * 20),
     )
 
     locator.run()
@@ -75,23 +66,23 @@ def test_object_not_in_graph(scrubber_db):
         assert cur.fetchone() == (0,)
 
 
-def test_origin_not_in_storage(scrubber_db, swh_storage, caplog):
+def test_origin_not_in_storage(scrubber_db, swh_storage, corrupt_object, caplog):
     scrubber_db.corrupt_object_add(
-        CORRUPT_OBJECT.id, CORRUPT_OBJECT.datastore, CORRUPT_OBJECT.object_
+        corrupt_object.id, corrupt_object.config, corrupt_object.object_
     )
 
     origin = Origin(url="http://example.org")
 
     graph = NaiveGraphClient(
-        nodes=[CORRUPT_OBJECT.id, origin.swhid()],
-        edges=[(origin.swhid(), CORRUPT_OBJECT.id)],
+        nodes=[corrupt_object.id, origin.swhid()],
+        edges=[(origin.swhid(), corrupt_object.id)],
     )
     locator = OriginLocator(
         db=scrubber_db,
         graph=graph,
         storage=swh_storage,
-        start_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),
-        end_object=CoreSWHID.from_string("swh:1:snp:" + "ff" * 20),
+        start_object=CoreSWHID.from_string("swh:1:dir:" + "00" * 20),
+        end_object=CoreSWHID.from_string("swh:1:dir:" + "ff" * 20),
     )
 
     with caplog.at_level(logging.ERROR, logger="swh.scrubber.origin_locator"):
@@ -107,9 +98,9 @@ def test_origin_not_in_storage(scrubber_db, swh_storage, caplog):
     )
 
 
-def test_two_origins(scrubber_db, swh_storage):
+def test_two_origins(scrubber_db, corrupt_object, swh_storage):
     scrubber_db.corrupt_object_add(
-        CORRUPT_OBJECT.id, CORRUPT_OBJECT.datastore, CORRUPT_OBJECT.object_
+        corrupt_object.id, corrupt_object.config, corrupt_object.object_
     )
 
     origin1 = Origin(url="http://example.org")
@@ -117,18 +108,18 @@ def test_two_origins(scrubber_db, swh_storage):
     swh_storage.origin_add([origin1, origin2])
 
     graph = NaiveGraphClient(
-        nodes=[CORRUPT_OBJECT.id, origin1.swhid(), origin2.swhid()],
+        nodes=[corrupt_object.id, origin1.swhid(), origin2.swhid()],
         edges=[
-            (origin1.swhid(), CORRUPT_OBJECT.id),
-            (origin2.swhid(), CORRUPT_OBJECT.id),
+            (origin1.swhid(), corrupt_object.id),
+            (origin2.swhid(), corrupt_object.id),
         ],
     )
     locator = OriginLocator(
         db=scrubber_db,
         graph=graph,
         storage=swh_storage,
-        start_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),
-        end_object=CoreSWHID.from_string("swh:1:snp:" + "ff" * 20),
+        start_object=CoreSWHID.from_string("swh:1:dir:" + "00" * 20),
+        end_object=CoreSWHID.from_string("swh:1:dir:" + "ff" * 20),
     )
 
     locator.run()
@@ -136,29 +127,29 @@ def test_two_origins(scrubber_db, swh_storage):
     with scrubber_db.conn.cursor() as cur:
         cur.execute("SELECT object_id, origin_url FROM object_origin")
         assert set(cur) == {
-            (str(CORRUPT_OBJECT.id), origin1.url),
-            (str(CORRUPT_OBJECT.id), origin2.url),
+            (str(corrupt_object.id), origin1.url),
+            (str(corrupt_object.id), origin2.url),
         }
 
 
-def test_many_origins(scrubber_db, swh_storage):
+def test_many_origins(scrubber_db, corrupt_object, swh_storage):
     scrubber_db.corrupt_object_add(
-        CORRUPT_OBJECT.id, CORRUPT_OBJECT.datastore, CORRUPT_OBJECT.object_
+        corrupt_object.id, corrupt_object.config, corrupt_object.object_
     )
 
     origins = [Origin(url=f"http://example.org/{i}") for i in range(1000)]
     swh_storage.origin_add(origins)
 
     graph = NaiveGraphClient(
-        nodes=[CORRUPT_OBJECT.id] + [origin.swhid() for origin in origins],
-        edges=[(origin.swhid(), CORRUPT_OBJECT.id) for origin in origins],
+        nodes=[corrupt_object.id] + [origin.swhid() for origin in origins],
+        edges=[(origin.swhid(), corrupt_object.id) for origin in origins],
     )
     locator = OriginLocator(
         db=scrubber_db,
         graph=graph,
         storage=swh_storage,
-        start_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),
-        end_object=CoreSWHID.from_string("swh:1:snp:" + "ff" * 20),
+        start_object=CoreSWHID.from_string("swh:1:dir:" + "00" * 20),
+        end_object=CoreSWHID.from_string("swh:1:dir:" + "ff" * 20),
     )
 
     locator.run()
@@ -166,5 +157,5 @@ def test_many_origins(scrubber_db, swh_storage):
     with scrubber_db.conn.cursor() as cur:
         cur.execute("SELECT object_id, origin_url FROM object_origin")
         rows = set(cur)
-        assert rows <= {(str(CORRUPT_OBJECT.id), origin.url) for origin in origins}
+        assert rows <= {(str(corrupt_object.id), origin.url) for origin in origins}
         assert len(rows) == 100
