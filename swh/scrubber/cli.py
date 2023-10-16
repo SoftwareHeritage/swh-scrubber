@@ -122,6 +122,8 @@ def scrubber_check_cli_group(ctx):
 )
 @click.option("--nb-partitions", default=4096, type=int)
 @click.option("--name", default=None, type=str)
+@click.option("--check-hashes/--no-check-hashes", default=True)
+@click.option("--check-references/--no-check-references", default=None)
 @click.pass_context
 def scrubber_check_init(
     ctx,
@@ -129,19 +131,28 @@ def scrubber_check_init(
     object_type: str,
     nb_partitions: int,
     name: Optional[str],
+    check_hashes: bool,
+    check_references: Optional[bool],
 ):
     """Initialise a scrubber check configuration for the datastore defined in the
     configuration file and given object_type.
 
     A checker configuration configuration consists simply in a set of:
 
-    - object type: the type of object being checked,
-    - number of partitions: the number of partitions the hash space is divided
+    - backend: the datastore type being scrubbed (storage or journal),
+
+    - object-type: the type of object being checked,
+
+    - nb-pertitions: the number of partitions the hash space is divided
       in; must be a power of 2,
+
     - name: an unique name for easier reference,
 
-    linked to the storage provided in the configuration file.
+    - check-hashes: flag (default to True) to select the hash validation step for
+      this scrubbing configuration,
 
+    - check-references: flag (default to True for storage and False for the journal
+      backend) to select the reference validation step for this scrubbing configuration.
     """
     if not object_type or not name:
         raise click.ClickException(
@@ -152,6 +163,8 @@ def scrubber_check_init(
     db = ctx.obj["db"]
 
     if backend == "storage":
+        if check_references is None:
+            check_references = True
         if "storage" not in conf:
             raise click.ClickException(
                 "You must have a storage configured in your config file."
@@ -163,6 +176,8 @@ def scrubber_check_init(
         datastore = get_storage_datastore(storage=get_storage(**conf["storage"]))
         db.datastore_get_or_add(datastore)
     elif backend == "journal":
+        if check_references is None:
+            check_references = False
         if "journal" not in conf:
             raise click.ClickException(
                 "You must have a journal configured in your config file."
@@ -177,8 +192,15 @@ def scrubber_check_init(
     if db.config_get_by_name(name):
         raise click.ClickException(f"Configuration {name} already exists")
 
+    assert check_references is not None
+
     config_id = db.config_add(
-        name, datastore, getattr(ObjectType, object_type.upper()), nb_partitions
+        name,
+        datastore,
+        getattr(ObjectType, object_type.upper()),
+        nb_partitions,
+        check_hashes=check_hashes,
+        check_references=check_references,
     )
     click.echo(
         f"Created configuration {name} [{config_id}] for checking {object_type} "

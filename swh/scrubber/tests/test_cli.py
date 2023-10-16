@@ -154,6 +154,84 @@ def test_check_init(mocker, scrubber_db, swh_storage):
     assert result.output.strip() == msg
 
 
+def test_check_init_storage_flags(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    arg_list = [
+        "check",
+        "init",
+        "storage",
+        "--object-type",
+        "snapshot",
+        "--nb-partitions",
+        "4",
+        "--name",
+    ]
+
+    name = "cfg1"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is True
+    assert cfg_entry.check_references is True
+
+    name = "cfg2"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name, "--no-check-references"],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is True
+    assert cfg_entry.check_references is False
+
+    name = "cfg3"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name, "--no-check-hashes"],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is False
+    assert cfg_entry.check_references is True
+
+
+def test_check_init_journal_flags(
+    mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
+):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    arg_list = [
+        "check",
+        "init",
+        "journal",
+        "--object-type",
+        "snapshot",
+        "--name",
+    ]
+
+    name = "cfg1"
+    result = invoke(
+        scrubber_db,
+        arg_list + [name],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
+    assert cfg_entry.check_hashes is True
+    assert cfg_entry.check_references is False
+
+
 def test_check_storage(mocker, scrubber_db, swh_storage):
     storage_checker = MagicMock()
     StorageChecker = mocker.patch(
