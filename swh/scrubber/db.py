@@ -7,7 +7,7 @@
 import dataclasses
 import datetime
 import functools
-from typing import Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 import psycopg2
 
@@ -291,6 +291,95 @@ class ScrubberDb(BaseDb):
                         check_references=chk_refs,
                     ),
                 )
+
+    def config_get_stats(
+        self,
+        config_id: int,
+    ) -> Dict[str, Any]:
+        """Return statistics for the check configuration <check_id>."""
+        config = self.config_get(config_id)
+        stats = {"config": config}
+
+        with self.transaction() as cur:
+            cur.execute(
+                """
+                SELECT
+                  min(end_date - start_date),
+                  avg(end_date - start_date),
+                  max(end_date - start_date)
+                FROM checked_partition
+                WHERE config_id=%s AND end_date is not NULL
+                """,
+                (config_id,),
+            )
+            row = cur.fetchone()
+            assert row
+            minv, avgv, maxv = row
+            stats["min_duration"] = minv.total_seconds() if minv is not None else 0.0
+            stats["max_duration"] = maxv.total_seconds() if maxv is not None else 0.0
+            stats["avg_duration"] = avgv.total_seconds() if avgv is not None else 0.0
+
+            cur.execute(
+                """
+                SELECT count(*)
+                FROM checked_partition
+                WHERE config_id=%s AND end_date is not NULL
+                """,
+                (config_id,),
+            )
+            row = cur.fetchone()
+            assert row
+            stats["checked_partition"] = row[0]
+
+            cur.execute(
+                """
+                SELECT count(*)
+                FROM checked_partition
+                WHERE config_id=%s AND end_date is NULL
+                """,
+                (config_id,),
+            )
+            row = cur.fetchone()
+            assert row
+            stats["running_partition"] = row[0]
+
+            cur.execute(
+                """
+                SELECT count(*)
+                FROM missing_object
+                WHERE config_id=%s
+                """,
+                (config_id,),
+            )
+            row = cur.fetchone()
+            assert row
+            stats["missing_object"] = row[0]
+
+            cur.execute(
+                """
+                SELECT count(distinct reference_id)
+                FROM missing_object_reference
+                WHERE config_id=%s
+                """,
+                (config_id,),
+            )
+            row = cur.fetchone()
+            assert row
+            stats["missing_object_reference"] = row[0]
+
+            cur.execute(
+                """
+                SELECT count(*)
+                FROM corrupt_object
+                WHERE config_id=%s
+                """,
+                (config_id,),
+            )
+            row = cur.fetchone()
+            assert row
+            stats["corrupt_object"] = row[0]
+
+        return stats
 
     ####################################
     # Checkpointing/progress tracking

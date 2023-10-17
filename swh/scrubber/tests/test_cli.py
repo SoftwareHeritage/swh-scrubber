@@ -3,6 +3,7 @@
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
 
+import json
 import tempfile
 from unittest.mock import MagicMock, call
 
@@ -396,6 +397,170 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
 1:	stuck since today (2 hours)
 """
     assert result.output == expected, result.output
+
+
+def test_check_running(mocker, scrubber_db, swh_storage):
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "storage",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+
+    result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = "No running partition found for cfg1 [id=1, type=snapshot]\n"
+    assert result.output == expected, result.output
+
+    # insert a partition started 20mn ago
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition VALUES (1, 0, now() - '20m'::interval, NULL);"
+        )
+    result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Running partitions for cfg1 [id=1, type=snapshot]:
+0:	running since today (20 minutes)
+"""
+    assert result.output == expected, result.output
+
+    # insert another partition started 20mn ago
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO checked_partition VALUES (1, 1, now() - '2h'::interval, NULL);"
+        )
+    result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    expected = """\
+Running partitions for cfg1 [id=1, type=snapshot]:
+0:	running since today (20 minutes)
+1:	running since today (2 hours)
+"""
+    assert result.output == expected, result.output
+
+
+def test_check_stats(mocker, scrubber_db, swh_storage):
+    from swh.scrubber.storage_checker import get_datastore
+
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    for otype in ("snapshot", "revision", "release"):
+        result = invoke(
+            scrubber_db,
+            [
+                "check",
+                "init",
+                "storage",
+                "--object-type",
+                otype,
+                "--nb-partitions",
+                "4",
+                "--name",
+                f"cfg_{otype}",
+            ],
+            storage=swh_storage,
+        )
+        assert result.exit_code == 0, result.output
+
+    result = invoke(
+        scrubber_db, ["check", "stats", "cfg_snapshot"], storage=swh_storage
+    )
+    assert result.exit_code == 0, result.output
+
+    for otype in ("snapshot", "revision", "release"):
+
+        result = invoke(
+            scrubber_db,
+            ["check", "stats", "--json", f"cfg_{otype}"],
+            storage=swh_storage,
+        )
+        stats = json.loads(result.output)
+        assert stats == {
+            "config": {
+                "name": f"cfg_{otype}",
+                "datastore": {
+                    "package": "storage",
+                    "cls": "postgresql",
+                    "instance": get_datastore(swh_storage).instance,
+                },
+                "object_type": otype,
+                "nb_partitions": 4,
+                "check_hashes": True,
+                "check_references": True,
+            },
+            "min_duration": 0,
+            "max_duration": 0,
+            "avg_duration": 0,
+            "checked_partition": 0,
+            "running_partition": 0,
+            "missing_object": 0,
+            "missing_object_reference": 0,
+            "corrupt_object": 0,
+        }
+
+    with scrubber_db.transaction() as cur:
+        # insert a pair of checked partitions
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 0, now() - '40m'::interval, now() - '20m'::interval)"
+        )
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 1, now() - '20m'::interval, now() - '10m'::interval)"
+        )
+        # and a pair of running ones
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 2, now() - '10m'::interval, NULL)"
+        )
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (1, 3, now() - '20m'::interval, NULL)"
+        )
+        # also add a checked partitions for another config entry
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (2, 0, now() - '40m'::interval, now() - '20m'::interval)"
+        )
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (2, 1, now() - '40m'::interval, now() - '20m'::interval)"
+        )
+        # and add a running checker for another config entry
+        cur.execute(
+            "INSERT INTO checked_partition "
+            "VALUES (2, 3, now() - '20m'::interval, NULL)"
+        )
+    result = invoke(
+        scrubber_db, ["check", "stats", "-j", "cfg_snapshot"], storage=swh_storage
+    )
+    assert result.exit_code == 0, result.output
+    stats = json.loads(result.output)
+    assert stats["config"]["name"] == "cfg_snapshot"
+    assert stats["min_duration"] == 600
+    assert stats["max_duration"] == 1200
+    assert stats["avg_duration"] == 900
+    assert stats["checked_partition"] == 2
+    assert stats["running_partition"] == 2
 
 
 def test_check_reset(mocker, scrubber_db, swh_storage):
