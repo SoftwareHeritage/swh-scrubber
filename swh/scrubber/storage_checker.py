@@ -352,6 +352,10 @@ class StorageChecker:
         missing_cnts = set(
             self.storage.content_missing_per_sha1_git(list(cnt_references))
         )
+        if missing_cnts:
+            missing_cnts.difference_update(
+                self.storage.skipped_content_missing_per_sha1_git(list(missing_cnts))
+            )
         missing_dirs = set(self.storage.directory_missing(list(dir_references)))
         missing_revs = set(self.storage.revision_missing(list(rev_references)))
         missing_rels = set(self.storage.release_missing(list(rel_references)))
