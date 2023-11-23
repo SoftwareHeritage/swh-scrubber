@@ -387,7 +387,6 @@ def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
     stats = db.config_get_stats(config_id)
 
     if json_format:
-
         stats["config"] = asdict(stats["config"])
         stats["config"]["object_type"] = stats["config"]["object_type"].name.lower()
         click.echo(dumps(stats, indent=2))

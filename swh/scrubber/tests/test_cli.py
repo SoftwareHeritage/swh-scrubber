@@ -487,7 +487,6 @@ def test_check_stats(mocker, scrubber_db, swh_storage):
     assert result.exit_code == 0, result.output
 
     for otype in ("snapshot", "revision", "release"):
-
         result = invoke(
             scrubber_db,
             ["check", "stats", "--json", f"cfg_{otype}"],
@@ -701,7 +700,7 @@ def test_check_journal(
     assert journal_checker.method_calls == [call.run()]
 
 
-def test_locate_origins(mocker, scrubber_db, swh_storage):
+def test_locate_origins(mocker, scrubber_db, swh_storage, naive_graph_client):
     origin_locator = MagicMock()
     OriginLocator = mocker.patch(
         "swh.scrubber.origin_locator.OriginLocator", return_value=origin_locator
@@ -709,6 +708,11 @@ def test_locate_origins(mocker, scrubber_db, swh_storage):
     get_scrubber_db = mocker.patch(
         "swh.scrubber.get_scrubber_db", return_value=scrubber_db
     )
+    mocker.patch(
+        "swh.graph.http_client.RemoteGraphClient",
+        return_value=naive_graph_client,
+    )
+
     result = invoke(scrubber_db, ["locate"], storage=swh_storage)
     assert result.exit_code == 0, result.output
     assert result.output == ""
