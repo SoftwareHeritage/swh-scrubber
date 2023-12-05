@@ -1,4 +1,4 @@
-# Copyright (C) 2021-2022  The Software Heritage developers
+# Copyright (C) 2021-2023  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -9,6 +9,9 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+import attr
+
+from swh.core.statsd import Statsd
 from swh.journal.client import get_journal_client
 from swh.journal.serializers import kafka_to_value
 from swh.model import model
@@ -70,6 +73,7 @@ class JournalChecker:
             # verbatim so it can archive it with as few modifications a possible.
             value_deserializer=lambda obj_type, msg: msg,
         )
+        self._statsd: Optional[Statsd] = None
 
     @property
     def config(self) -> ConfigEntry:
@@ -85,6 +89,18 @@ class JournalChecker:
         being checked."""
         return self.config.datastore
 
+    @property
+    def statsd(self) -> Statsd:
+        if self._statsd is None:
+            self._statsd = Statsd(
+                namespace="swh_scrubber",
+                constant_tags={
+                    "datastore_package": self.datastore.package,
+                    "datastore_cls": self.datastore.cls,
+                },
+            )
+        return self._statsd
+
     def run(self):
         """Runs a journal client with the given configuration.
         This method does not return, unless otherwise configured (with ``stop_on_eof``).
@@ -92,11 +108,30 @@ class JournalChecker:
         self.journal_client.process(self.process_kafka_messages)
 
     def process_kafka_messages(self, all_messages: Dict[str, List[bytes]]):
-        for (object_type, messages) in all_messages.items():
+        for object_type, messages in all_messages.items():
             logger.debug("Processing %s %s", len(messages), object_type)
             cls = getattr(model, object_type.capitalize())
             for message in messages:
-                object_ = cls.from_dict(kafka_to_value(message))
+                if object_type == "directory":
+                    d = kafka_to_value(message)
+                    (
+                        has_duplicate_dir_entries,
+                        object_,
+                    ) = cls.from_possibly_duplicated_entries(
+                        entries=tuple(
+                            map(model.DirectoryEntry.from_dict, d["entries"])
+                        ),
+                        raw_manifest=d.get("raw_manifest"),
+                    )
+                    object_ = attr.evolve(object_, id=d["id"])
+                    if has_duplicate_dir_entries:
+                        self.statsd.increment(
+                            "duplicate_directory_entries_total",
+                            tags={"object_type": "directory"},
+                        )
+                else:
+                    object_ = cls.from_dict(kafka_to_value(message))
+                    has_duplicate_dir_entries = False
                 real_id = object_.compute_hash()
-                if object_.id != real_id:
+                if object_.id != real_id or has_duplicate_dir_entries:
                     self.db.corrupt_object_add(object_.swhid(), self.config, message)
