@@ -217,7 +217,7 @@ class StorageChecker:
                 )
                 directory_ids = page.results
                 objects = []
-                for (dir_id, item) in zip(
+                for dir_id, item in zip(
                     directory_ids,
                     directory_get_many_with_possibly_duplicated_entries(
                         self.storage, directory_ids

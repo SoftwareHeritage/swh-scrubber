@@ -108,7 +108,7 @@ class JournalChecker:
         self.journal_client.process(self.process_kafka_messages)
 
     def process_kafka_messages(self, all_messages: Dict[str, List[bytes]]):
-        for (object_type, messages) in all_messages.items():
+        for object_type, messages in all_messages.items():
             logger.debug("Processing %s %s", len(messages), object_type)
             cls = getattr(model, object_type.capitalize())
             for message in messages:

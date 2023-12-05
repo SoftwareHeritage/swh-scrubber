@@ -993,7 +993,7 @@ class ScrubberDb(BaseDb):
     def fixed_object_iter(self) -> Iterator[FixedObject]:
         with self.transaction() as cur:
             cur.execute("SELECT id, object, method, recovery_date FROM fixed_object")
-            for (id, object_, method, recovery_date) in cur:
+            for id, object_, method, recovery_date in cur:
                 yield FixedObject(
                     id=CoreSWHID.from_string(id),
                     object_=object_,
