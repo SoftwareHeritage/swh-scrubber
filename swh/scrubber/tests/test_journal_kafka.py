@@ -1,16 +1,17 @@
-# Copyright (C) 2022  The Software Heritage developers
+# Copyright (C) 2022-2023  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
 
 import datetime
+import hashlib
 
 import attr
 import pytest
 
 from swh.journal.serializers import kafka_to_value
 from swh.journal.writer import get_journal_writer
-from swh.model import swhids
+from swh.model import model, swhids
 from swh.model.swhids import ObjectType
 from swh.model.tests import swh_model_data
 from swh.scrubber.db import Datastore
@@ -165,6 +166,73 @@ def test_corrupt_snapshots(
         for swhid in [
             "swh:1:snp:0000000000000000000000000000000000000000",
             "swh:1:snp:0101010101010101010101010101010101010101",
+        ]
+    }
+
+
+def test_duplicate_directory_entries(
+    scrubber_db,
+    kafka_server,
+    kafka_prefix,
+    kafka_consumer_group,
+    datastore,
+):
+    config_id = scrubber_db.config_add(
+        name="cfg_directory",
+        datastore=datastore,
+        object_type=ObjectType.DIRECTORY,
+        nb_partitions=1,
+        check_references=False,
+    )
+    directory = model.Directory(
+        entries=(
+            model.DirectoryEntry(
+                name=b"filename", type="file", target=b"\x01" * 20, perms=0
+            ),
+        )
+    )
+
+    # has duplicate entries and wrong hash
+    corrupt_directory = {
+        "id": b"\x00" * 20,
+        "entries": [
+            {"name": b"filename", "type": "file", "target": b"\x01" * 20, "perms": 0},
+            {"name": b"filename", "type": "file", "target": b"\x02" * 20, "perms": 0},
+        ],
+    }
+
+    # has duplicate entries but correct hash
+    raw_manifest = (
+        b"tree 62\x00"
+        + b"0 filename\x00"
+        + b"\x01" * 20
+        + b"0 filename\x00"
+        + b"\x02" * 20
+    )
+    dupe_directory = {
+        "id": hashlib.sha1(raw_manifest).digest(),
+        "entries": corrupt_directory["entries"],
+        "raw_manifest": raw_manifest,
+    }
+
+    writer = journal_writer(kafka_server, kafka_prefix)
+    writer.send(f"{kafka_prefix}.directory", directory.id, directory.to_dict())
+    writer.send(f"{kafka_prefix}.directory", corrupt_directory["id"], corrupt_directory)
+    writer.send(f"{kafka_prefix}.directory", dupe_directory["id"], dupe_directory)
+
+    JournalChecker(
+        db=scrubber_db,
+        config_id=config_id,
+        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
+    ).run()
+
+    corrupt_objects = list(scrubber_db.corrupt_object_iter())
+    assert len(corrupt_objects) == 2
+    assert {co.id for co in corrupt_objects} == {
+        swhids.CoreSWHID.from_string(swhid)
+        for swhid in [
+            "swh:1:dir:0000000000000000000000000000000000000000",
+            f"swh:1:dir:{dupe_directory['id'].hex()}",
         ]
     }
 

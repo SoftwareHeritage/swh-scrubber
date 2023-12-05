@@ -41,7 +41,7 @@ def get_origins(
 
     for origin_swhid_group in grouper(origin_swhids, 10):
         origin_swhid_group = list(origin_swhid_group)
-        for (origin, origin_swhid) in zip(
+        for origin, origin_swhid in zip(
             storage.origin_get_by_sha1(
                 [origin_swhid.object_id for origin_swhid in origin_swhid_group]
             ),

@@ -304,6 +304,126 @@ def scrubber_check_stalled(
         )
 
 
+@scrubber_check_cli_group.command(name="running")
+@click.argument(
+    "name",
+    type=str,
+    default=None,
+    required=False,  # can be given by config_id instead
+)
+@click.option(
+    "--config-id",
+    type=int,
+)
+@click.pass_context
+def scrubber_check_running(ctx, name: str, config_id: int):
+    """List partitions being checked for the check session <name>"""
+    import datetime
+
+    from humanize import naturaldate, naturaldelta
+
+    db = ctx.obj["db"]
+    if name and config_id is None:
+        config_id = db.config_get_by_name(name)
+
+    if config_id is None:
+        raise click.ClickException("A valid configuration name/id must be set")
+
+    cfg = db.config_get(config_id)
+    in_flight = list(db.checked_partition_get_running(config_id))
+    if in_flight:
+        click.echo(
+            f"Running partitions for {cfg.name} [id={config_id}, "
+            f"type={cfg.object_type.name.lower()}]:"
+        )
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        for partition, running_since in in_flight:
+            click.echo(
+                f"{partition}:\trunning since {naturaldate(running_since)} "
+                f"({naturaldelta(now-running_since)})"
+            )
+    else:
+        click.echo(
+            f"No running partition found for {cfg.name} [id={config_id}, "
+            f"type={cfg.object_type.name.lower()}]"
+        )
+
+
+@scrubber_check_cli_group.command(name="stats")
+@click.argument(
+    "name",
+    type=str,
+    default=None,
+    required=False,  # can be given by config_id instead
+)
+@click.option(
+    "--config-id",
+    type=int,
+)
+@click.option(
+    "-j",
+    "--json",
+    "json_format",
+    is_flag=True,
+)
+@click.pass_context
+def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
+    """Display statistics for the check session <name>"""
+    from dataclasses import asdict
+    from json import dumps
+    import textwrap
+
+    from humanize import naturaldelta
+
+    db = ctx.obj["db"]
+    if name and config_id is None:
+        config_id = db.config_get_by_name(name)
+
+    if config_id is None:
+        raise click.ClickException("A valid configuration name/id must be set")
+
+    cfg = db.config_get(config_id)
+    nb_partitions = cfg.nb_partitions
+    stats = db.config_get_stats(config_id)
+
+    if json_format:
+        stats["config"] = asdict(stats["config"])
+        stats["config"]["object_type"] = stats["config"]["object_type"].name.lower()
+        click.echo(dumps(stats, indent=2))
+    else:
+        percentage = stats["checked_partition"] / nb_partitions * 100.0
+        click.echo(
+            textwrap.dedent(
+                f"""\
+                Check session {name} ({config_id}):
+                  object type: {cfg.object_type.name}
+                  datastore: {cfg.datastore.instance}
+                  check hashes: {cfg.check_hashes}
+                  check references: {cfg.check_references}
+                  partitions:
+                    total: {nb_partitions}
+                    running: {stats['running_partition']}
+                    done: {stats['checked_partition']} ({percentage:.2f}%)"""
+            )
+        )
+        if stats["checked_partition"]:
+            click.echo(
+                "  "
+                + textwrap.dedent(
+                    f"""\
+                    duration:
+                        min: {naturaldelta(stats['min_duration'])}
+                        avg: {naturaldelta(stats['avg_duration'])}
+                        max: {naturaldelta(stats['max_duration'])}"""
+                )
+            )
+        if cfg.check_hashes:
+            click.echo(f"  corrupted objects: {stats['corrupt_object']}")
+        if cfg.check_references:
+            click.echo(f"  missing objects: {stats['missing_object']}")
+            click.echo(f"  from references: {stats['missing_object_reference']}")
+
+
 @scrubber_check_cli_group.command(name="storage")
 @click.argument(
     "name",
