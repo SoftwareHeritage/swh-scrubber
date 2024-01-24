@@ -197,6 +197,23 @@ def test_checked_partition_get_next(
     assert next(snp_part_gen) == 3
     assert next(dir_part_gen) == 4
 
+    # iterate on all 64 possible partitions for the config config_id (5 of them
+    # are already affected, so 59 to go)
+    for i in range(59):
+        assert next(dir_part_gen) == (i + 5)
+    # we should be at the end of the partitions now...
+    with pytest.raises(StopIteration):
+        next(dir_part_gen)
+    # check we still do not get anything after 63 with a new iterator
+    assert list(scrubber_db.checked_partition_iter_next(config_id)) == []
+    # check the database is OK with that
+    with scrubber_db.transaction() as cur:
+        cur.execute(
+            "select max(partition_id) from checked_partition where config_id=%s",
+            (config_id,),
+        )
+        assert cur.fetchone() == (63,)
+
 
 def test_checked_partition_get_next_with_hole(
     datastore: Datastore, scrubber_db: ScrubberDb, config_id: int
