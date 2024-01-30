@@ -83,7 +83,7 @@ def datastore():
 
 @pytest.fixture
 def scrubber_db(postgresql_scrubber):
-    db = ScrubberDb(postgresql_scrubber)
+    db = ScrubberDb.connect(postgresql_scrubber.info.dsn)
     with db.conn.cursor() as cur:
         cur.execute("TRUNCATE TABLE corrupt_object")
         cur.execute("TRUNCATE TABLE datastore CASCADE")

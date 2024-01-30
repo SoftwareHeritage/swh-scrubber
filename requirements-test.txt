@@ -2,5 +2,5 @@ msgpack
 pytest
 pytest-mock
 pyyaml
-swh.core[testing]
+swh.core[testing] >= 3.0.0
 swh.graph

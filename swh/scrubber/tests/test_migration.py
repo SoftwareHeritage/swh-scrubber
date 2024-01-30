@@ -88,7 +88,7 @@ def test_upgrade_6_to_7(
     assert swh_db_version(conninfo) == 7
 
     tmap = {otype.name.lower(): otype.value for otype in ObjectType}
-    db = ScrubberDb(postgresql)
+    db = ScrubberDb.connect(postgresql.info.dsn)
 
     # corrupt objects
     corrupt_objects = list(db.corrupt_object_iter())
