@@ -593,7 +593,7 @@ class ScrubberDb(BaseDb):
             )
 
             for row in cur:
-                yield tuple(row)  # type: ignore[misc]
+                yield tuple(row)
 
     ####################################
     # Inventory of objects with issues
