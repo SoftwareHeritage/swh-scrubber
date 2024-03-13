@@ -100,11 +100,7 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
         )
         conf["scrubber"] = conf.pop("scrubber_db")
 
-    if "scrubber" not in conf:
-        click.echo(
-            "WARNING: You must have a scrubber configured in your config file.\n"
-        )
-    else:
+    if "scrubber" in conf:
         ctx.obj["db"] = get_scrubber_db(**conf["scrubber"])
 
 
@@ -173,6 +169,8 @@ def scrubber_check_init(
         )
 
     conf = ctx.obj["config"]
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
     db = ctx.obj["db"]
 
     if backend == "storage":
@@ -228,9 +226,10 @@ def scrubber_check_list(
 ):
     """List the know configurations"""
     conf = ctx.obj["config"]
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
     if "storage" not in conf:
         ctx.fail("You must have a storage configured in your config file.")
-
     db = ctx.obj["db"]
 
     for id_, cfg in db.config_iter():
@@ -279,6 +278,8 @@ def scrubber_check_stalled(
 
     from humanize import naturaldate, naturaldelta
 
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
     db = ctx.obj["db"]
     if name and config_id is None:
         config_id = db.config_get_by_name(name)
@@ -335,6 +336,8 @@ def scrubber_check_running(ctx, name: str, config_id: int):
 
     from humanize import naturaldate, naturaldelta
 
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
     db = ctx.obj["db"]
     if name and config_id is None:
         config_id = db.config_get_by_name(name)
@@ -388,6 +391,8 @@ def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
 
     from humanize import naturaldelta
 
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
     db = ctx.obj["db"]
     if name and config_id is None:
         config_id = db.config_get_by_name(name)
@@ -437,7 +442,7 @@ def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
             click.echo(f"  from references: {stats['missing_object_reference']}")
 
 
-@scrubber_check_cli_group.command(name="storage")
+@scrubber_check_cli_group.command(name="run")
 @click.argument(
     "name",
     type=str,
@@ -447,14 +452,94 @@ def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
 @click.option(
     "--config-id",
     type=int,
+    default=None,
+    help="Config ID (is config name is not given as argument)",
+)
+@click.option("--limit", default=0, type=int)
+@click.pass_context
+def scrubber_check_run(
+    ctx,
+    name: Optional[str],
+    config_id: Optional[int],
+    limit: int,
+):
+    """Run the scrubber checker configured as `name` and reports corrupt
+    objects to the scrubber DB.
+
+    This runs a single thread; parallelism is achieved by running this command
+    multiple times.
+
+    This command references an existing scrubbing configuration (either by name
+    or by id); the configuration holds the object type, number of partitions
+    and the storage configuration this scrubbing session will check on.
+
+    """
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
+    db = ctx.obj["db"]
+    if name and config_id is None:
+        config_id = db.config_get_by_name(name)
+
+    if config_id is None:
+        ctx.fail("A valid configuration name/id must be given.")
+
+    from swh.scrubber.base_checker import BaseChecker
+
+    scrubber_cfg = db.config_get(config_id)
+    datastore = scrubber_cfg.datastore
+    conf = ctx.obj["config"]
+
+    assert config_id is not None
+    checker: BaseChecker
+
+    if datastore.package == "storage":
+        if "storage" not in conf:
+            ctx.fail("You must have a storage configured in your config file.")
+        from swh.storage import get_storage
+
+        from .storage_checker import StorageChecker
+
+        checker = StorageChecker(
+            db=db,
+            storage=get_storage(**conf["storage"]),
+            config_id=config_id,
+            limit=limit,
+        )
+    elif datastore.package == "journal":
+        if "journal" not in conf:
+            ctx.fail("You must have a journal configured in your config file.")
+        from .journal_checker import JournalChecker
+
+        checker = JournalChecker(
+            db=db,
+            journal_client_config=conf["journal"],
+            config_id=config_id,
+        )
+    else:
+        ctx.fail(f"Unsupported scruber package {datastore.package}")
+
+    checker.run()
+
+
+@scrubber_check_cli_group.command(name="storage", deprecated=True, hidden=True)
+@click.argument(
+    "name",
+    type=str,
+    default=None,
+    required=False,  # can be given by config_id instead
+)
+@click.option(
+    "--config-id",
+    type=int,
+    default=None,
     help="Config ID (is config name is not given as argument)",
 )
 @click.option("--limit", default=0, type=int)
 @click.pass_context
 def scrubber_check_storage(
     ctx,
-    name: str,
-    config_id: int,
+    name: Optional[str],
+    config_id: Optional[int],
     limit: int,
 ):
     """Reads a swh-storage instance, and reports corrupt objects to the scrubber DB.
@@ -473,8 +558,10 @@ def scrubber_check_storage(
     check session is stored in the database, so the number of concurrent
     workers can be dynamically adjusted.
 
-    """  # noqa
+    """
     conf = ctx.obj["config"]
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
     if "storage" not in conf:
         ctx.fail("You must have a storage configured in your config file.")
     db = ctx.obj["db"]
@@ -506,7 +593,7 @@ def scrubber_check_storage(
     checker.run()
 
 
-@scrubber_check_cli_group.command(name="journal")
+@scrubber_check_cli_group.command(name="journal", deprecated=True, hidden=True)
 @click.argument(
     "name",
     type=str,
@@ -523,6 +610,8 @@ def scrubber_check_journal(ctx, name, config_id) -> None:
     """Reads a complete kafka journal, and reports corrupt objects to
     the scrubber DB."""
     conf = ctx.obj["config"]
+    if "db" not in ctx.obj:
+        ctx.fail("You must have a scrubber configured in your config file.")
     if "journal" not in conf:
         ctx.fail("You must have a journal configured in your config file.")
     db = ctx.obj["db"]

@@ -92,24 +92,24 @@ def test_help_check(mocker, scrubber_db, swh_storage):
     # With older click version (e.g. 7.0-1), the text wrapping can be different,
     # resulting in some docstring text included in this command list, so check we find
     # the expected commands instead
-    for command in ["init", "journal", "list", "stalled", "storage"]:
+    for command in ["init", "list", "run", "stalled"]:
         assert command in commands
+    for command in ["storage", "journal"]:
+        assert command not in commands
 
-    # without a config file, --help should still work but with an extra message
+    # without a config file, --help should still work
     result = CliRunner().invoke(
         scrubber_cli_group, ["check", "--help"], catch_exceptions=False
     )
     output = result.output.splitlines(keepends=False)
-    msg = "WARNING: You must have a scrubber configured in your config file."
-    assert output[0] == msg
     msg = "Usage: scrubber check [OPTIONS] COMMAND [ARGS]..."
-    assert output[2] == msg
+    assert output[0] == msg
     assert "Commands:" in output
     commands = [cmd.split()[0] for cmd in output[output.index("Commands:") + 1 :]]
     # With older click version (e.g. 7.0-1), the text wrapping can be different,
     # resulting in some docstring text included in this command list, so check we find
     # the expected commands instead
-    for command in ["init", "journal", "list", "stalled", "storage"]:
+    for command in ["init", "list", "run", "stalled"]:
         assert command in commands
 
 
@@ -233,7 +233,14 @@ def test_check_init_journal_flags(
     assert cfg_entry.check_references is False
 
 
-def test_check_storage(mocker, scrubber_db, swh_storage):
+def test_check_run_ko(mocker, scrubber_db, swh_storage):
+    # using the config id instead of the config name
+    result = invoke(scrubber_db, ["check", "run"], storage=swh_storage)
+    assert result.exit_code == 2, result.output
+    assert "Error: A valid configuration name/id must be given." in result.output
+
+
+def test_check_run_storage(mocker, scrubber_db, swh_storage):
     storage_checker = MagicMock()
     StorageChecker = mocker.patch(
         "swh.scrubber.storage_checker.StorageChecker", return_value=storage_checker
@@ -260,7 +267,7 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
     msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
     assert result.output.strip() == msg
 
-    result = invoke(scrubber_db, ["check", "storage", "cfg1"], storage=swh_storage)
+    result = invoke(scrubber_db, ["check", "run", "cfg1"], storage=swh_storage)
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
@@ -275,17 +282,68 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
 
     # using the config id instead of the config name
     result = invoke(
-        scrubber_db, ["check", "storage", "--config-id", "1"], storage=swh_storage
+        scrubber_db, ["check", "run", "--config-id", "1"], storage=swh_storage
     )
     assert result.exit_code == 0, result.output
     assert result.output == ""
 
 
-def test_check_storage_ko(mocker, scrubber_db, swh_storage):
-    # using the config id instead of the config name
-    result = invoke(scrubber_db, ["check", "storage"], storage=swh_storage)
-    assert result.exit_code == 1, result.output
-    assert result.output == "Error: A valid configuration name/id must be set\n"
+def test_check_run_journal(
+    mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
+):
+    journal_checker = MagicMock()
+    JournalChecker = mocker.patch(
+        "swh.scrubber.journal_checker.JournalChecker", return_value=journal_checker
+    )
+    get_scrubber_db = mocker.patch(
+        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
+    )
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "journal",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in kafka journal"
+    assert result.output.strip() == msg
+
+    result = invoke(
+        scrubber_db,
+        ["check", "run", "cfg1"],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    assert get_scrubber_db.call_count == 2
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+
+    JournalChecker.assert_called_once_with(
+        db=scrubber_db,
+        journal_client_config={
+            "brokers": kafka_server,
+            "cls": "kafka",
+            "group_id": kafka_consumer_group,
+            "prefix": kafka_prefix,
+            "on_eof": "stop",
+        },
+        config_id=1,
+    )
+    assert journal_checker.method_calls == [call.run()]
 
 
 def test_check_list(mocker, scrubber_db, swh_storage):
@@ -642,64 +700,6 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
     assert next(scrubber_db.checked_partition_iter_next(1)) == 3
 
 
-def test_check_journal(
-    mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
-):
-    journal_checker = MagicMock()
-    JournalChecker = mocker.patch(
-        "swh.scrubber.journal_checker.JournalChecker", return_value=journal_checker
-    )
-    get_scrubber_db = mocker.patch(
-        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
-    )
-    result = invoke(
-        scrubber_db,
-        [
-            "check",
-            "init",
-            "journal",
-            "--object-type",
-            "snapshot",
-            "--nb-partitions",
-            "4",
-            "--name",
-            "cfg1",
-        ],
-        kafka_server=kafka_server,
-        kafka_prefix=kafka_prefix,
-        kafka_consumer_group=kafka_consumer_group,
-    )
-    assert result.exit_code == 0, result.output
-    msg = "Created configuration cfg1 [1] for checking snapshot in kafka journal"
-    assert result.output.strip() == msg
-
-    result = invoke(
-        scrubber_db,
-        ["check", "journal", "cfg1"],
-        kafka_server=kafka_server,
-        kafka_prefix=kafka_prefix,
-        kafka_consumer_group=kafka_consumer_group,
-    )
-    assert result.exit_code == 0, result.output
-    assert result.output == ""
-
-    assert get_scrubber_db.call_count == 2
-    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
-
-    JournalChecker.assert_called_once_with(
-        db=scrubber_db,
-        journal_client_config={
-            "brokers": kafka_server,
-            "cls": "kafka",
-            "group_id": kafka_consumer_group,
-            "prefix": kafka_prefix,
-            "on_eof": "stop",
-        },
-        config_id=1,
-    )
-    assert journal_checker.method_calls == [call.run()]
-
-
 def test_locate_origins(mocker, scrubber_db, swh_storage, naive_graph_client):
     origin_locator = MagicMock()
     OriginLocator = mocker.patch(
@@ -745,3 +745,119 @@ def test_fix_objects(mocker, scrubber_db):
         end_object=CoreSWHID.from_string("swh:1:snp:" + "ff" * 20),
     )
     assert fixer.method_calls == [call.run()]
+
+
+# deprecated commands
+def test_check_storage(mocker, scrubber_db, swh_storage):
+    storage_checker = MagicMock()
+    StorageChecker = mocker.patch(
+        "swh.scrubber.storage_checker.StorageChecker", return_value=storage_checker
+    )
+    get_scrubber_db = mocker.patch(
+        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
+    )
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "storage",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
+    assert result.output.strip() == msg
+
+    result = invoke(scrubber_db, ["check", "storage", "cfg1"], storage=swh_storage)
+    assert result.exit_code == 0, result.output
+    assert (
+        result.output.strip()
+        == "DeprecationWarning: The command 'storage' is deprecated."
+    )
+
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    StorageChecker.assert_called_once_with(
+        db=scrubber_db,
+        config_id=1,
+        storage=StorageChecker.mock_calls[0][2]["storage"],
+        limit=0,
+    )
+    assert storage_checker.method_calls == [call.run()]
+
+    # using the config id instead of the config name
+    result = invoke(
+        scrubber_db, ["check", "storage", "--config-id", "1"], storage=swh_storage
+    )
+    assert result.exit_code == 0, result.output
+    assert (
+        result.output.strip()
+        == "DeprecationWarning: The command 'storage' is deprecated."
+    )
+
+
+def test_check_journal(
+    mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
+):
+    journal_checker = MagicMock()
+    JournalChecker = mocker.patch(
+        "swh.scrubber.journal_checker.JournalChecker", return_value=journal_checker
+    )
+    get_scrubber_db = mocker.patch(
+        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
+    )
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "journal",
+            "--object-type",
+            "snapshot",
+            "--nb-partitions",
+            "4",
+            "--name",
+            "cfg1",
+        ],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+    msg = "Created configuration cfg1 [1] for checking snapshot in kafka journal"
+    assert result.output.strip() == msg
+
+    result = invoke(
+        scrubber_db,
+        ["check", "journal", "cfg1"],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+    )
+    assert result.exit_code == 0, result.output
+    assert (
+        result.output.strip()
+        == "DeprecationWarning: The command 'journal' is deprecated."
+    )
+
+    assert get_scrubber_db.call_count == 2
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+
+    JournalChecker.assert_called_once_with(
+        db=scrubber_db,
+        journal_client_config={
+            "brokers": kafka_server,
+            "cls": "kafka",
+            "group_id": kafka_consumer_group,
+            "prefix": kafka_prefix,
+            "on_eof": "stop",
+        },
+        config_id=1,
+    )
+    assert journal_checker.method_calls == [call.run()]
