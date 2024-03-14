@@ -1,4 +1,4 @@
-# Copyright (C) 2022-2023  The Software Heritage developers
+# Copyright (C) 2022-2024  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -77,7 +77,7 @@ def test_no_corruption(
         jc = JournalChecker(
             db=scrubber_db,
             config_id=config_id,
-            journal=journal_cfg,
+            journal_client_config=journal_cfg,
         )
         jc.run()
         jc.journal_client.close()
@@ -111,7 +111,9 @@ def test_corrupt_snapshot(
     JournalChecker(
         db=scrubber_db,
         config_id=config_id,
-        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
+        journal_client_config=journal_client_config(
+            kafka_server, kafka_prefix, kafka_consumer_group
+        ),
     ).run()
     after_date = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -156,7 +158,9 @@ def test_corrupt_snapshots(
     JournalChecker(
         db=scrubber_db,
         config_id=config_id,
-        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
+        journal_client_config=journal_client_config(
+            kafka_server, kafka_prefix, kafka_consumer_group
+        ),
     ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
@@ -223,7 +227,9 @@ def test_duplicate_directory_entries(
     JournalChecker(
         db=scrubber_db,
         config_id=config_id,
-        journal=journal_client_config(kafka_server, kafka_prefix, kafka_consumer_group),
+        journal_client_config=journal_client_config(
+            kafka_server, kafka_prefix, kafka_consumer_group
+        ),
     ).run()
 
     corrupt_objects = list(scrubber_db.corrupt_object_iter())
@@ -258,5 +264,5 @@ def test_check_references_raises(
         JournalChecker(
             db=scrubber_db,
             config_id=config_id,
-            journal=journal_config,
+            journal_client_config=journal_config,
         )

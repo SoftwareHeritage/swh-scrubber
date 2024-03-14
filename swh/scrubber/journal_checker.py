@@ -1,4 +1,4 @@
-# Copyright (C) 2021-2023  The Software Heritage developers
+# Copyright (C) 2021-2024  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -7,16 +7,16 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import attr
 
-from swh.core.statsd import Statsd
 from swh.journal.client import get_journal_client
 from swh.journal.serializers import kafka_to_value
 from swh.model import model
 
-from .db import ConfigEntry, Datastore, ScrubberDb
+from .base_checker import BaseChecker
+from .db import Datastore, ScrubberDb
 
 logger = logging.getLogger(__name__)
 
@@ -36,29 +36,31 @@ def get_datastore(journal_cfg) -> Datastore:
         )
     else:
         raise NotImplementedError(
-            f"JournalChecker(journal={journal_cfg!r}).datastore()"
+            f"JournalChecker(journal_client_config={journal_cfg!r}).datastore()"
         )
     return datastore
 
 
-class JournalChecker:
+class JournalChecker(BaseChecker):
     """Reads a chunk of a swh-storage database, recomputes checksums, and
     reports errors in a separate database."""
 
-    _config: Optional[ConfigEntry] = None
-    _datastore: Optional[Datastore] = None
-
-    def __init__(self, db: ScrubberDb, config_id: int, journal: Dict[str, Any]):
-        self.db = db
-        self.config_id = config_id
+    def __init__(
+        self, db: ScrubberDb, config_id: int, journal_client_config: Dict[str, Any]
+    ):
+        super().__init__(db=db, config_id=config_id)
+        self.statsd_constant_tags = {
+            "datastore_package": self.datastore.package,
+            "datastore_cls": self.datastore.cls,
+        }
 
         if self.config.check_references:
             raise ValueError(
-                "The journal checcker cannot check for references, please set "
+                "The journal checker cannot check for references, please set "
                 "the 'check_references' to False in the config entry %s.",
                 self.config_id,
             )
-        self.journal_client_config = journal.copy()
+        self.journal_client_config = journal_client_config.copy()
         if "object_types" in self.journal_client_config:
             raise ValueError(
                 "The journal_client configuration entry should not define the "
@@ -73,35 +75,8 @@ class JournalChecker:
             # verbatim so it can archive it with as few modifications a possible.
             value_deserializer=lambda obj_type, msg: msg,
         )
-        self._statsd: Optional[Statsd] = None
 
-    @property
-    def config(self) -> ConfigEntry:
-        if self._config is None:
-            self._config = self.db.config_get(self.config_id)
-
-        assert self._config is not None
-        return self._config
-
-    @property
-    def datastore(self) -> Datastore:
-        """Returns a :class:`Datastore` instance representing the journal instance
-        being checked."""
-        return self.config.datastore
-
-    @property
-    def statsd(self) -> Statsd:
-        if self._statsd is None:
-            self._statsd = Statsd(
-                namespace="swh_scrubber",
-                constant_tags={
-                    "datastore_package": self.datastore.package,
-                    "datastore_cls": self.datastore.cls,
-                },
-            )
-        return self._statsd
-
-    def run(self):
+    def run(self) -> None:
         """Runs a journal client with the given configuration.
         This method does not return, unless otherwise configured (with ``stop_on_eof``).
         """
