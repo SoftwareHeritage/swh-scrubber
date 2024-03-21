@@ -814,8 +814,6 @@ class ScrubberDb(BaseDb):
             datastore: representation of the swh-storage/swh-journal/... instance
               containing this hole
         """
-        if not reference_ids:
-            raise ValueError("reference_ids is empty")
         config_id = self.config_get_by_name(config.name)
         with self.transaction() as cur:
             cur.execute(
@@ -826,18 +824,19 @@ class ScrubberDb(BaseDb):
                 """,
                 (str(id), config_id),
             )
-            psycopg2.extras.execute_batch(
-                cur,
-                """
-                INSERT INTO missing_object_reference (missing_id, reference_id, config_id)
-                VALUES (%s, %s, %s)
-                ON CONFLICT DO NOTHING
-                """,
-                [
-                    (str(id), str(reference_id), config_id)
-                    for reference_id in reference_ids
-                ],
-            )
+            if reference_ids:
+                psycopg2.extras.execute_batch(
+                    cur,
+                    """
+                    INSERT INTO missing_object_reference (missing_id, reference_id, config_id)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    [
+                        (str(id), str(reference_id), config_id)
+                        for reference_id in reference_ids
+                    ],
+                )
 
     def missing_object_iter(self) -> Iterator[MissingObject]:
         """Yields all records in the 'missing_object' table."""
