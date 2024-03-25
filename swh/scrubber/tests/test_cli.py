@@ -48,7 +48,7 @@ def invoke(
             brokers=kafka_server,
             group_id=kafka_consumer_group,
             prefix=kafka_prefix,
-            stop_on_eof=True,
+            on_eof="stop",
         )
 
     with tempfile.NamedTemporaryFile("a", suffix=".yml") as config_fd:
@@ -693,7 +693,7 @@ def test_check_journal(
             "cls": "kafka",
             "group_id": kafka_consumer_group,
             "prefix": kafka_prefix,
-            "stop_on_eof": True,
+            "on_eof": "stop",
         },
         config_id=1,
     )

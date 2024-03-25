@@ -78,7 +78,9 @@ class JournalChecker(BaseChecker):
 
     def run(self) -> None:
         """Runs a journal client with the given configuration.
-        This method does not return, unless otherwise configured (with ``stop_on_eof``).
+
+        This method does not return, unless the client is configured with ``on_eof``
+        parameter equals to ``EofBehavior.STOP`` (``stop`` in YAML).
         """
         self.journal_client.process(self.process_kafka_messages)
 
