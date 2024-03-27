@@ -4,3 +4,4 @@ swh.loader.git >= 1.4.0
 swh.model >= 5.0.0
 swh.storage >= 2.0.0
 swh.journal >= 1.3.0
+swh.objstorage >= 2.9.2

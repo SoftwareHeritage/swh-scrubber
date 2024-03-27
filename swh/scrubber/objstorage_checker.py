@@ -12,7 +12,7 @@ from swh.journal.client import get_journal_client
 from swh.journal.serializers import kafka_to_value, value_to_kafka
 from swh.model.model import Content
 from swh.model.swhids import ObjectType
-from swh.objstorage.exc import ObjNotFoundError
+from swh.objstorage.exc import ObjCorruptedError, ObjNotFoundError
 from swh.objstorage.interface import ObjStorageInterface, objid_from_dict
 from swh.storage.interface import StorageInterface
 
@@ -55,25 +55,21 @@ class ContentCheckerMixin(ObjectStorageCheckerProtocol):
 
         content_hashes = objid_from_dict(content.hashes())
         try:
-            content_bytes = self.objstorage.get(content_hashes)
+            self.objstorage.check(content_hashes)
         except ObjNotFoundError:
             if self.config.check_references:
                 self.statsd.increment("missing_object_total")
                 self.db.missing_object_add(
                     id=content.swhid(), reference_ids={}, config=self.config
                 )
-        else:
+        except ObjCorruptedError:
             if self.config.check_hashes:
-                recomputed_hashes = objid_from_dict(
-                    Content.from_data(content_bytes).hashes()
+                self.statsd.increment("hash_mismatch_total")
+                self.db.corrupt_object_add(
+                    id=content.swhid(),
+                    config=self.config,
+                    serialized_object=value_to_kafka(content.to_dict()),
                 )
-                if content_hashes != recomputed_hashes:
-                    self.statsd.increment("hash_mismatch_total")
-                    self.db.corrupt_object_add(
-                        id=content.swhid(),
-                        config=self.config,
-                        serialized_object=value_to_kafka(content.to_dict()),
-                    )
 
 
 class ObjectStorageCheckerFromStoragePartition(
