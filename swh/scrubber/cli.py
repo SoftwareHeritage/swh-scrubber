@@ -14,6 +14,17 @@ from swh.core.cli import swh as swh_cli_group
 from swh.model.swhids import ObjectType
 
 
+def _fix_sphinx_docstring():
+    """Remove \b markers used by click to prevent text rewrapping in docstring."""
+
+    def decorator(f):
+        if "SWH_DOC_BUILD" in os.environ:
+            f.__doc__ = f.__doc__.replace("\b", "")
+        return f
+
+    return decorator
+
+
 @swh_cli_group.group(name="scrubber", context_settings=CONTEXT_SETTINGS)
 @click.option(
     "--config-file",
@@ -26,15 +37,17 @@ from swh.model.swhids import ObjectType
     help="Configuration file.",
 )
 @click.pass_context
+@_fix_sphinx_docstring()
 def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
     """main command group of the datastore scrubber
 
+    \b
     Expected config format::
-
+        \b
         scrubber:
             cls: postgresql
             db: "service=..."    # libpq DSN
-
+        \b
         # for storage checkers + origin locator only:
         storage:
             cls: postgresql     # cannot be remote for checkers, as they need direct
@@ -42,7 +55,7 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
             db": "service=..."  # libpq DSN
             objstorage:
                 cls: memory
-
+        \b
         # for journal checkers only:
         journal:
             # see https://docs.softwareheritage.org/devel/apidoc/swh.journal.client.html
