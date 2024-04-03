@@ -19,6 +19,7 @@ def invoke(
     scrubber_db,
     args,
     storage=None,
+    objstorage=None,
     kafka_server=None,
     kafka_prefix=None,
     kafka_consumer_group=None,
@@ -36,6 +37,8 @@ def invoke(
                 "db": db.conn.dsn,
                 "objstorage": {"cls": "memory"},
             }
+    if objstorage:
+        config["objstorage"] = {"cls": "memory"}
 
     assert (
         (kafka_server is None)
@@ -113,7 +116,7 @@ def test_help_check(mocker, scrubber_db, swh_storage):
         assert command in commands
 
 
-def test_check_init(mocker, scrubber_db, swh_storage):
+def test_check_init_storage(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(
         scrubber_db,
@@ -205,6 +208,75 @@ def test_check_init_storage_flags(mocker, scrubber_db, swh_storage):
     assert cfg_entry.check_references is True
 
 
+def test_check_init_objstorage(mocker, scrubber_db, swh_storage, swh_objstorage):
+    config_name = "cfg1"
+    mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "objstorage",
+            "--object-type",
+            "content",
+            "--nb-partitions",
+            "4",
+            "--name",
+            config_name,
+        ],
+        storage=swh_storage,
+        objstorage=swh_objstorage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = f"Created configuration {config_name} [1] for checking content in memory objstorage"
+    assert result.output.strip() == msg
+
+    cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(config_name))
+    assert cfg_entry.check_hashes is True
+    assert cfg_entry.check_references is True
+
+    # error: config name already exists
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "objstorage",
+            "--object-type",
+            "content",
+            "--nb-partitions",
+            "8",
+            "--name",
+            config_name,
+        ],
+        storage=swh_storage,
+        objstorage=swh_objstorage,
+    )
+    assert result.exit_code == 1, result.output
+    msg = f"Error: Configuration {config_name} already exists"
+    assert result.output.strip() == msg
+
+    # error: missing objstorage config
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "objstorage",
+            "--object-type",
+            "content",
+            "--nb-partitions",
+            "8",
+            "--name",
+            config_name,
+        ],
+        storage=swh_storage,
+    )
+    assert result.exit_code == 1, result.output
+    msg = "Error: You must have an object storage configured in your config file."
+    assert result.output.strip() == msg
+
+
 def test_check_init_journal_flags(
     mocker, scrubber_db, kafka_server, kafka_prefix, kafka_consumer_group
 ):
@@ -286,6 +358,136 @@ def test_check_run_storage(mocker, scrubber_db, swh_storage):
     )
     assert result.exit_code == 0, result.output
     assert result.output == ""
+
+
+def test_check_run_objstorage_partition(
+    mocker, scrubber_db, swh_storage, swh_objstorage
+):
+    config_name = "cfg1"
+    objstorage_checker = MagicMock()
+    ObjectStorageCheckerFromStoragePartition = mocker.patch(
+        "swh.scrubber.objstorage_checker.ObjectStorageCheckerFromStoragePartition",
+        return_value=objstorage_checker,
+    )
+    get_scrubber_db = mocker.patch(
+        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
+    )
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "objstorage",
+            "--object-type",
+            "content",
+            "--nb-partitions",
+            "4",
+            "--name",
+            config_name,
+        ],
+        storage=swh_storage,
+        objstorage=swh_objstorage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = f"Created configuration {config_name} [1] for checking content in memory objstorage"
+    assert result.output.strip() == msg
+
+    result = invoke(
+        scrubber_db,
+        ["check", "run", config_name],
+        storage=swh_storage,
+        objstorage=swh_objstorage,
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    ObjectStorageCheckerFromStoragePartition.assert_called_once_with(
+        db=scrubber_db,
+        config_id=1,
+        storage=ObjectStorageCheckerFromStoragePartition.mock_calls[0][2]["storage"],
+        objstorage=ObjectStorageCheckerFromStoragePartition.mock_calls[0][2][
+            "objstorage"
+        ],
+        limit=0,
+    )
+    assert objstorage_checker.method_calls == [call.run()]
+
+    # using the config id instead of the config name
+    result = invoke(
+        scrubber_db,
+        ["check", "run", "--config-id", "1"],
+        storage=swh_storage,
+        objstorage=swh_objstorage,
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+
+def test_check_run_objstorage_journal(
+    mocker,
+    scrubber_db,
+    kafka_server,
+    kafka_prefix,
+    kafka_consumer_group,
+    swh_objstorage,
+):
+    config_name = "cfg1"
+    journal_checker = MagicMock()
+    ObjectStorageCheckerFromJournal = mocker.patch(
+        "swh.scrubber.objstorage_checker.ObjectStorageCheckerFromJournal",
+        return_value=journal_checker,
+    )
+    get_scrubber_db = mocker.patch(
+        "swh.scrubber.get_scrubber_db", return_value=scrubber_db
+    )
+    result = invoke(
+        scrubber_db,
+        [
+            "check",
+            "init",
+            "objstorage",
+            "--object-type",
+            "content",
+            "--name",
+            config_name,
+        ],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+        objstorage=swh_objstorage,
+    )
+    assert result.exit_code == 0, result.output
+    msg = f"Created configuration {config_name} [1] for checking content in memory objstorage"
+    assert result.output.strip() == msg
+
+    result = invoke(
+        scrubber_db,
+        ["check", "run", "--use-journal", config_name],
+        kafka_server=kafka_server,
+        kafka_prefix=kafka_prefix,
+        kafka_consumer_group=kafka_consumer_group,
+        objstorage=swh_objstorage,
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+    assert get_scrubber_db.call_count == 2
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+
+    ObjectStorageCheckerFromJournal.assert_called_once_with(
+        db=scrubber_db,
+        journal_client_config={
+            "brokers": kafka_server,
+            "cls": "kafka",
+            "group_id": kafka_consumer_group,
+            "prefix": kafka_prefix,
+            "on_eof": "stop",
+        },
+        config_id=1,
+        objstorage=ObjectStorageCheckerFromJournal.mock_calls[0][2]["objstorage"],
+    )
+    assert journal_checker.method_calls == [call.run()]
 
 
 def test_check_run_journal(

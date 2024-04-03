@@ -112,7 +112,7 @@ def scrubber_check_cli_group(ctx):
 
 
 @scrubber_check_cli_group.command(name="init")
-@click.argument("backend", type=click.Choice(["storage", "journal"]))
+@click.argument("backend", type=click.Choice(["storage", "journal", "objstorage"]))
 @click.option(
     "--object-type",
     type=click.Choice(
@@ -123,6 +123,7 @@ def scrubber_check_cli_group(ctx):
             "revision",
             "release",
             "directory",
+            "content",
             # TODO:
             # "raw_extrinsic_metadata",
             # "extid",
@@ -148,11 +149,11 @@ def scrubber_check_init(
 
     A checker configuration configuration consists simply in a set of:
 
-    - backend: the datastore type being scrubbed (storage or journal),
+    - backend: the datastore type being scrubbed (storage, objstorage or journal),
 
     - object-type: the type of object being checked,
 
-    - nb-pertitions: the number of partitions the hash space is divided
+    - nb-partitions: the number of partitions the hash space is divided
       in; must be a power of 2,
 
     - name: an unique name for easier reference,
@@ -197,6 +198,23 @@ def scrubber_check_init(
 
         datastore = get_journal_datastore(journal_cfg=conf["journal"])
         db.datastore_get_or_add(datastore)
+        nb_partitions = 1
+    elif backend == "objstorage":
+        if check_references is None:
+            check_references = True
+        if object_type != "content":
+            raise click.ClickException(
+                "Object storage scrubber can only check content objects, "
+                f"not {object_type} ones."
+            )
+
+        if "objstorage" not in conf:
+            raise click.ClickException(
+                "You must have an object storage configured in your config file."
+            )
+        from .objstorage_checker import get_objstorage_datastore
+
+        datastore = get_objstorage_datastore(objstorage_config=conf["objstorage"])
     else:
         raise click.ClickException(f"Backend type {backend} is not supported")
 
@@ -455,12 +473,23 @@ def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
     default=None,
     help="Config ID (is config name is not given as argument)",
 )
+@click.option(
+    "--use-journal",
+    is_flag=True,
+    default=False,
+    help=(
+        "Flag only relevant for running an object storage scrubber, "
+        "if set content ids are consumed from a kafka topic of SWH journal "
+        "instead of getting them from a storage"
+    ),
+)
 @click.option("--limit", default=0, type=int)
 @click.pass_context
 def scrubber_check_run(
     ctx,
     name: Optional[str],
     config_id: Optional[int],
+    use_journal: bool,
     limit: int,
 ):
     """Run the scrubber checker configured as `name` and reports corrupt
@@ -505,6 +534,36 @@ def scrubber_check_run(
             config_id=config_id,
             limit=limit,
         )
+    elif datastore.package == "objstorage":
+        if not use_journal and "storage" not in conf:
+            ctx.fail("You must have a storage configured in your config file.")
+        if use_journal and "journal" not in conf:
+            ctx.fail("You must have a journal configured in your config file.")
+        if "objstorage" not in conf:
+            ctx.fail("You must have an object storage configured in your config file.")
+        from swh.objstorage.factory import get_objstorage
+
+        if use_journal:
+            from .objstorage_checker import ObjectStorageCheckerFromJournal
+
+            checker = ObjectStorageCheckerFromJournal(
+                db=db,
+                journal_client_config=conf["journal"],
+                objstorage=get_objstorage(**conf["objstorage"]),
+                config_id=config_id,
+            )
+        else:
+            from swh.storage import get_storage
+
+            from .objstorage_checker import ObjectStorageCheckerFromStoragePartition
+
+            checker = ObjectStorageCheckerFromStoragePartition(
+                db=db,
+                storage=get_storage(**conf["storage"]),
+                objstorage=get_objstorage(**conf["objstorage"]),
+                config_id=config_id,
+                limit=limit,
+            )
     elif datastore.package == "journal":
         if "journal" not in conf:
             ctx.fail("You must have a journal configured in your config file.")
