@@ -1,4 +1,4 @@
-# Copyright (C) 2022  The Software Heritage developers
+# Copyright (C) 2022-2024  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -12,6 +12,7 @@ from pytest_postgresql import factories
 
 from swh.core.db.db_utils import initialize_database_for_module
 from swh.journal.serializers import value_to_kafka
+from swh.journal.writer import get_journal_writer
 from swh.model.hashutil import hash_to_bytes
 from swh.model.model import Directory, DirectoryEntry
 from swh.model.swhids import ObjectType
@@ -109,4 +110,28 @@ def corrupt_object(scrubber_db, config_entry):
         config=config_entry,
         first_occurrence=datetime.datetime.now(tz=datetime.timezone.utc),
         object_=value_to_kafka(CORRUPT_DIRECTORY.to_dict()),
+    )
+
+
+@pytest.fixture
+def journal_client_config(
+    kafka_server: str, kafka_prefix: str, kafka_consumer_group: str
+):
+    return dict(
+        cls="kafka",
+        brokers=kafka_server,
+        group_id=kafka_consumer_group,
+        prefix=kafka_prefix,
+        on_eof="stop",
+    )
+
+
+@pytest.fixture
+def journal_writer(kafka_server: str, kafka_prefix: str):
+    return get_journal_writer(
+        cls="kafka",
+        brokers=[kafka_server],
+        client_id="kafka_writer",
+        prefix=kafka_prefix,
+        anonymize=False,
     )
