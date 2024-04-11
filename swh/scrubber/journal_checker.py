@@ -49,10 +49,6 @@ class JournalChecker(BaseChecker):
         self, db: ScrubberDb, config_id: int, journal_client_config: Dict[str, Any]
     ):
         super().__init__(db=db, config_id=config_id)
-        self.statsd_constant_tags = {
-            "datastore_package": self.datastore.package,
-            "datastore_cls": self.datastore.cls,
-        }
 
         if self.config.check_references:
             raise ValueError(
@@ -66,9 +62,7 @@ class JournalChecker(BaseChecker):
                 "The journal_client configuration entry should not define the "
                 "object_types field; this is handled by the scrubber configuration entry"
             )
-        self.journal_client_config["object_types"] = [
-            self.config.object_type.name.lower()
-        ]
+        self.journal_client_config["object_types"] = [self.object_type.name.lower()]
         self.journal_client = get_journal_client(
             **self.journal_client_config,
             # Remove default deserializer; so process_kafka_values() gets the message

@@ -29,10 +29,14 @@ class BaseChecker(ABC):
     ):
         self.db = db
         self.config_id = config_id
-        self.statsd_constant_tags: Dict[str, Any] = {}
-
         self._config: Optional[ConfigEntry] = None
         self._statsd: Optional[Statsd] = None
+        self.statsd_constant_tags: Dict[str, Any] = {
+            "object_type": self.object_type.name.lower(),
+            "datastore_package": self.datastore.package,
+            "datastore_cls": self.datastore.cls,
+            "datastore_instance": self.datastore.instance,
+        }
 
     @property
     def config(self) -> ConfigEntry:
@@ -60,6 +64,11 @@ class BaseChecker(ABC):
         return self._statsd
 
     @property
+    def object_type(self) -> swhids.ObjectType:
+        """Returns the type of object being checked."""
+        return self.config.object_type
+
+    @property
     def check_hashes(self) -> bool:
         return self.config.check_hashes
 
@@ -84,17 +93,7 @@ class BasePartitionChecker(BaseChecker):
     ):
         super().__init__(db=db, config_id=config_id)
         self.limit = limit
-        self.statsd_constant_tags = {
-            "object_type": self.object_type,
-            "nb_partitions": self.nb_partitions,
-            "datastore_package": self.datastore.package,
-            "datastore_cls": self.datastore.cls,
-        }
-
-    @property
-    def object_type(self) -> swhids.ObjectType:
-        """Returns the type of object being checked."""
-        return self.config.object_type
+        self.statsd_constant_tags["nb_partitions"] = self.nb_partitions
 
     @property
     def nb_partitions(self) -> int:

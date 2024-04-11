@@ -49,7 +49,6 @@ class ObjectStorageChecker(BasePartitionChecker):
         self.objstorage = (
             objstorage if objstorage is not None else getattr(storage, "objstorage")
         )
-        self.statsd_constant_tags["datastore_instance"] = self.datastore.instance
 
     def check_partition(self, object_type: ObjectType, partition_id: int) -> None:
         if object_type != ObjectType.CONTENT:
