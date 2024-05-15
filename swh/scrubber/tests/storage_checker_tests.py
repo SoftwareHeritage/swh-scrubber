@@ -51,7 +51,7 @@ RELEASE1 = model.Release(
 SNAPSHOT1 = model.Snapshot(
     branches={
         b"rel1": model.SnapshotBranch(
-            target_type=model.TargetType.RELEASE, target=RELEASE1.id
+            target_type=model.SnapshotTargetType.RELEASE, target=RELEASE1.id
         ),
     }
 )

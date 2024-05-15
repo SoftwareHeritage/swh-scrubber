@@ -20,7 +20,7 @@ from swh.model.model import (
     Release,
     Revision,
     Snapshot,
-    TargetType,
+    SnapshotTargetType,
 )
 from swh.storage.algos.directory import (
     directory_get_many_with_possibly_duplicated_entries,
@@ -251,17 +251,17 @@ class StorageChecker(BasePartitionChecker):
                 for branch in object_.branches.values():
                     if branch is None:
                         pass
-                    elif branch.target_type == TargetType.ALIAS:
+                    elif branch.target_type == SnapshotTargetType.ALIAS:
                         pass
-                    elif branch.target_type == TargetType.CONTENT:
+                    elif branch.target_type == SnapshotTargetType.CONTENT:
                         cnt_references[branch.target].add(swhid)
-                    elif branch.target_type == TargetType.DIRECTORY:
+                    elif branch.target_type == SnapshotTargetType.DIRECTORY:
                         dir_references[branch.target].add(swhid)
-                    elif branch.target_type == TargetType.REVISION:
+                    elif branch.target_type == SnapshotTargetType.REVISION:
                         rev_references[branch.target].add(swhid)
-                    elif branch.target_type == TargetType.RELEASE:
+                    elif branch.target_type == SnapshotTargetType.RELEASE:
                         rel_references[branch.target].add(swhid)
-                    elif branch.target_type == TargetType.SNAPSHOT:
+                    elif branch.target_type == SnapshotTargetType.SNAPSHOT:
                         snp_references[branch.target].add(swhid)
                     else:
                         assert False, (str(object_.swhid()), branch)
