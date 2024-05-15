@@ -44,7 +44,7 @@ REVISION1 = model.Revision(
 RELEASE1 = model.Release(
     message=b"blih",
     name=b"bluh",
-    target_type=model.ObjectType.REVISION,
+    target_type=model.ReleaseTargetType.REVISION,
     target=REVISION1.id,
     synthetic=True,
 )
