@@ -19,7 +19,7 @@ from swh.scrubber.journal_checker import JournalChecker, get_datastore
 
 @pytest.fixture
 def datastore(journal_client_config) -> Datastore:
-    return get_datastore(journal_client_config)
+    return get_datastore(journal_client_config, "test_instance")
 
 
 def test_no_corruption(

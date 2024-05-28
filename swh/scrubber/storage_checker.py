@@ -7,7 +7,6 @@
 
 import collections
 import contextlib
-import json
 import logging
 from typing import Iterable, Optional, Tuple, Union
 
@@ -84,29 +83,18 @@ def _get_inclusive_range_swhids(
     return (range_start_swhid, range_end_swhid)
 
 
-def get_datastore(storage) -> Datastore:
+def get_datastore(storage: StorageInterface, instance_name: str) -> Datastore:
     if isinstance(storage, PostgresqlStorage):
-        with postgresql_storage_db(storage) as db:
-            datastore = Datastore(
-                package="storage",
-                cls="postgresql",
-                instance=db.conn.dsn,
-            )
+        cls = "postgresql"
     elif isinstance(storage, CassandraStorage):
-        datastore = Datastore(
-            package="storage",
-            cls="cassandra",
-            instance=json.dumps(
-                {
-                    "keyspace": storage.keyspace,
-                    "hosts": storage.hosts,
-                    "port": storage.port,
-                }
-            ),
-        )
+        cls = "cassandra"
     else:
         raise NotImplementedError(f"StorageChecker(storage={storage!r}).datastore()")
-    return datastore
+    return Datastore(
+        package="storage",
+        cls=cls,
+        instance=instance_name,
+    )
 
 
 class StorageChecker(BasePartitionChecker):

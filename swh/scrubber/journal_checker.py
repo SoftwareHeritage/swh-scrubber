@@ -5,7 +5,6 @@
 
 """Reads all objects in a swh-storage instance and recomputes their checksums."""
 
-import json
 import logging
 from typing import Any, Dict, List
 
@@ -21,18 +20,12 @@ from .db import Datastore, ScrubberDb
 logger = logging.getLogger(__name__)
 
 
-def get_datastore(journal_cfg) -> Datastore:
+def get_datastore(journal_cfg: dict, instance_name: str) -> Datastore:
     if journal_cfg.get("cls") == "kafka":
         datastore = Datastore(
             package="journal",
             cls="kafka",
-            instance=json.dumps(
-                {
-                    "brokers": journal_cfg["brokers"],
-                    "group_id": journal_cfg["group_id"],
-                    "prefix": journal_cfg["prefix"],
-                }
-            ),
+            instance=instance_name,
         )
     else:
         raise NotImplementedError(

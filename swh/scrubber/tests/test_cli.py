@@ -28,6 +28,7 @@ def invoke(
 
     config = {
         "scrubber": {"cls": "postgresql", "db": scrubber_db.conn.dsn},
+        "instance": "test_instance",
         "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
@@ -553,8 +554,6 @@ def test_check_list(mocker, scrubber_db, swh_storage):
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
     assert result.exit_code == 0, result.output
     assert result.output == ""
-    with swh_storage.db() as db:
-        dsn = db.conn.dsn
 
     result = invoke(
         scrubber_db,
@@ -575,7 +574,7 @@ def test_check_list(mocker, scrubber_db, swh_storage):
 
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
     assert result.exit_code == 0, result.output
-    expected = f"[1] cfg1: snapshot, 4, storage:postgresql ({dsn})\n"
+    expected = "[1] cfg1: snapshot, 4, storage:postgresql (test_instance)\n"
     assert result.output == expected, result.output
 
 
@@ -716,8 +715,6 @@ Running partitions for cfg1 [id=1, type=snapshot]:
 
 
 def test_check_stats(mocker, scrubber_db, swh_storage):
-    from swh.scrubber.storage_checker import get_datastore
-
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
     assert result.exit_code == 0, result.output
@@ -759,7 +756,7 @@ def test_check_stats(mocker, scrubber_db, swh_storage):
                 "datastore": {
                     "package": "storage",
                     "cls": "postgresql",
-                    "instance": get_datastore(swh_storage).instance,
+                    "instance": "test_instance",
                 },
                 "object_type": otype,
                 "nb_partitions": 4,

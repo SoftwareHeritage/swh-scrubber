@@ -185,7 +185,9 @@ def scrubber_check_init(
 
         from .storage_checker import get_datastore as get_storage_datastore
 
-        datastore = get_storage_datastore(storage=get_storage(**conf["storage"]))
+        datastore = get_storage_datastore(
+            storage=get_storage(**conf["storage"]), instance_name=conf["instance"]
+        )
         db.datastore_get_or_add(datastore)
     elif backend == "journal":
         if check_references is None:
@@ -196,7 +198,9 @@ def scrubber_check_init(
             )
         from .journal_checker import get_datastore as get_journal_datastore
 
-        datastore = get_journal_datastore(journal_cfg=conf["journal"])
+        datastore = get_journal_datastore(
+            journal_cfg=conf["journal"], instance_name=conf["instance"]
+        )
         db.datastore_get_or_add(datastore)
         nb_partitions = 1
     elif backend == "objstorage":
@@ -633,7 +637,9 @@ def scrubber_check_storage(
         from .storage_checker import get_datastore as get_storage_datastore
 
         cfg = conf["storage"]
-        datastore = get_storage_datastore(storage=get_storage(**cfg))
+        datastore = get_storage_datastore(
+            storage=get_storage(**cfg), instance_name=conf["instance"]
+        )
         datastore_id = db.datastore_get_or_add(datastore)
         config_id = db.config_get_by_name(name, datastore_id)
     elif name is None and config_id is not None:
@@ -679,7 +685,9 @@ def scrubber_check_journal(ctx, name, config_id) -> None:
         from .journal_checker import get_datastore as get_journal_datastore
 
         cfg = conf["journal"]
-        datastore = get_journal_datastore(journal_cfg=cfg)
+        datastore = get_journal_datastore(
+            journal_cfg=cfg, instance_name=conf["instance"]
+        )
         datastore_id = db.datastore_get_or_add(datastore)
         config_id = db.config_get_by_name(name, datastore_id)
     elif name is None and config_id is not None:
