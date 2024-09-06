@@ -522,7 +522,7 @@ class ScrubberDb(BaseDb):
                 """
                 SELECT partition_id, start_date
                 FROM checked_partition
-                WHERE config_id=%s AND end_date is NULL
+                WHERE config_id=%s AND start_date is not NULL AND end_date is NULL
                 """,
                 (config_id,),
             )

@@ -700,7 +700,7 @@ Running partitions for cfg1 [id=1, type=snapshot]:
 """
     assert result.output == expected, result.output
 
-    # insert another partition started 20mn ago
+    # insert another partition started 2 hours ago
     with scrubber_db.transaction() as cur:
         cur.execute(
             "INSERT INTO checked_partition VALUES (1, 1, now() - '2h'::interval, NULL);"
@@ -712,6 +712,16 @@ Running partitions for cfg1 [id=1, type=snapshot]:
 0:	running since today (20 minutes)
 1:	running since today (2 hours)
 """
+    assert result.output == expected, result.output
+
+    # insert another partition whose scrubbing did not start yet
+    with scrubber_db.transaction() as cur:
+        cur.execute("INSERT INTO checked_partition VALUES (1, 2, NULL, NULL);")
+
+    result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
+
+    # not scrubbed partition should not be displayed
+    assert result.exit_code == 0, result.output
     assert result.output == expected, result.output
 
 
