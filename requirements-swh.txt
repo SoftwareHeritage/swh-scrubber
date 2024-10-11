@@ -1,5 +1,5 @@
 # Add here internal Software Heritage dependencies, one per line.
-swh.core[http] >= 3.0.0
+swh.core[http] >= 3.6.1
 swh.loader.git >= 1.4.0
 swh.model >= 6.13.0
 swh.storage >= 2.0.0

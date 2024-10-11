@@ -28,6 +28,9 @@ testing = {file = ["requirements-test.txt"]}
 [project.entry-points."swh.cli.subcommands"]
 "swh.scrubber" = "swh.scrubber.cli"
 
+[project.entry-points."swh.scrubber.classes"]
+"postgresql" = "swh.scrubber.db:ScrubberDb"
+
 [project.urls]
 "Homepage" = "https://gitlab.softwareheritage.org/swh/devel/swh-scrubber"
 "Bug Reports" = "https://gitlab.softwareheritage.org/swh/devel/swh-scrubber/-/issues"
