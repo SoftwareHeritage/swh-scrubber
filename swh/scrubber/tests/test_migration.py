@@ -54,6 +54,8 @@ def mock_import_swhmodule(mocker, datadir, current_version):
     """
 
     def import_swhmodule_mock(modname):
+        if ":" in modname:
+            modname = modname.split(":")[0]
         if modname.startswith("test."):
             dirname = modname.split(".", 1)[1]
 
