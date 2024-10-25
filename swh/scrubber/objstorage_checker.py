@@ -36,12 +36,10 @@ class ObjectStorageCheckerProtocol(Protocol):
     objstorage: ObjStorageInterface
 
     @property
-    def config(self) -> ConfigEntry:
-        ...
+    def config(self) -> ConfigEntry: ...
 
     @property
-    def statsd(self) -> Statsd:
-        ...
+    def statsd(self) -> Statsd: ...
 
 
 class ContentCheckerMixin(ObjectStorageCheckerProtocol):

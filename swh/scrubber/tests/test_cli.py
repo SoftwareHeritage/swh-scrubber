@@ -5,6 +5,7 @@
 
 import json
 import tempfile
+import traceback
 from unittest.mock import MagicMock, call
 
 from click.testing import CliRunner
@@ -13,6 +14,17 @@ import yaml
 from swh.model.swhids import CoreSWHID
 from swh.scrubber.cli import scrubber_cli_group
 from swh.scrubber.storage_checker import postgresql_storage_db
+
+
+def assert_result(result):
+    if result.exception:
+        assert result.exit_code == 0, (
+            "Unexpected exception: "
+            f"{''.join(traceback.format_tb(result.exc_info[2]))}"
+            f"\noutput: {result.output}"
+        )
+    else:
+        assert result.exit_code == 0, f"Unexpected output: {result.output}"
 
 
 def invoke(
@@ -70,7 +82,7 @@ def test_help_main(mocker, scrubber_db, swh_storage):
             "--help",
         ],
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     output = result.output.splitlines(keepends=False)
     msg = "Usage: scrubber [OPTIONS] COMMAND [ARGS]..."
     assert output[0] == msg
@@ -87,7 +99,7 @@ def test_help_check(mocker, scrubber_db, swh_storage):
             "--help",
         ],
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     output = result.output.splitlines(keepends=False)
     msg = "Usage: scrubber check [OPTIONS] COMMAND [ARGS]..."
     assert output[0] == msg
@@ -134,7 +146,7 @@ def test_check_init_storage(mocker, scrubber_db, swh_storage):
         ],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
     assert result.output.strip() == msg
 
@@ -178,7 +190,7 @@ def test_check_init_storage_flags(mocker, scrubber_db, swh_storage):
         arg_list + [name],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
     assert cfg_entry.check_hashes is True
@@ -190,7 +202,7 @@ def test_check_init_storage_flags(mocker, scrubber_db, swh_storage):
         arg_list + [name, "--no-check-references"],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
     assert cfg_entry.check_hashes is True
@@ -202,7 +214,7 @@ def test_check_init_storage_flags(mocker, scrubber_db, swh_storage):
         arg_list + [name, "--no-check-hashes"],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
     assert cfg_entry.check_hashes is False
@@ -228,7 +240,7 @@ def test_check_init_objstorage(mocker, scrubber_db, swh_storage, swh_objstorage)
         storage=swh_storage,
         objstorage=swh_objstorage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = f"Created configuration {config_name} [1] for checking content in memory objstorage"
     assert result.output.strip() == msg
 
@@ -299,7 +311,7 @@ def test_check_init_journal_flags(
         kafka_prefix=kafka_prefix,
         kafka_consumer_group=kafka_consumer_group,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     cfg_entry = scrubber_db.config_get(scrubber_db.config_get_by_name(name))
     assert cfg_entry.check_hashes is True
@@ -336,12 +348,12 @@ def test_check_run_storage(mocker, scrubber_db, swh_storage):
         ],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
     assert result.output.strip() == msg
 
     result = invoke(scrubber_db, ["check", "run", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
@@ -357,7 +369,7 @@ def test_check_run_storage(mocker, scrubber_db, swh_storage):
     result = invoke(
         scrubber_db, ["check", "run", "--config-id", "1"], storage=swh_storage
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
 
@@ -389,7 +401,7 @@ def test_check_run_objstorage_partition(
         storage=swh_storage,
         objstorage=swh_objstorage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = f"Created configuration {config_name} [1] for checking content in memory objstorage"
     assert result.output.strip() == msg
 
@@ -399,7 +411,7 @@ def test_check_run_objstorage_partition(
         storage=swh_storage,
         objstorage=swh_objstorage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
@@ -421,7 +433,7 @@ def test_check_run_objstorage_partition(
         storage=swh_storage,
         objstorage=swh_objstorage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
 
@@ -458,7 +470,7 @@ def test_check_run_objstorage_journal(
         kafka_consumer_group=kafka_consumer_group,
         objstorage=swh_objstorage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = f"Created configuration {config_name} [1] for checking content in memory objstorage"
     assert result.output.strip() == msg
 
@@ -470,7 +482,7 @@ def test_check_run_objstorage_journal(
         kafka_consumer_group=kafka_consumer_group,
         objstorage=swh_objstorage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     assert get_scrubber_db.call_count == 2
@@ -518,7 +530,7 @@ def test_check_run_journal(
         kafka_prefix=kafka_prefix,
         kafka_consumer_group=kafka_consumer_group,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = "Created configuration cfg1 [1] for checking snapshot in kafka journal"
     assert result.output.strip() == msg
 
@@ -529,7 +541,7 @@ def test_check_run_journal(
         kafka_prefix=kafka_prefix,
         kafka_consumer_group=kafka_consumer_group,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     assert get_scrubber_db.call_count == 2
@@ -552,7 +564,7 @@ def test_check_run_journal(
 def test_check_list(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     result = invoke(
@@ -570,10 +582,11 @@ def test_check_list(mocker, scrubber_db, swh_storage):
         ],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
     assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = "[1] cfg1: snapshot, 4, storage:postgresql (test_instance)\n"
     assert result.output == expected, result.output
 
@@ -581,7 +594,7 @@ def test_check_list(mocker, scrubber_db, swh_storage):
 def test_check_stalled(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     result = invoke(
@@ -599,10 +612,10 @@ def test_check_stalled(mocker, scrubber_db, swh_storage):
         ],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
     assert result.output == expected, result.output
 
@@ -615,7 +628,7 @@ def test_check_stalled(mocker, scrubber_db, swh_storage):
     # there are no existing completed partition, defaults to 1h to be considered as stalled
     # so a partition just added is not stalled
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
     assert result.output == expected, result.output
 
@@ -626,7 +639,7 @@ def test_check_stalled(mocker, scrubber_db, swh_storage):
         )
     # it is considered as stalled by default
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = """\
 Stuck partitions for cfg1 [id=1, type=snapshot]:
 1:	stuck since today (2 hours)
@@ -637,7 +650,7 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
     result = invoke(
         scrubber_db, ["check", "stalled", "--for", "8000", "cfg1"], storage=swh_storage
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
     assert result.output == expected, result.output
 
@@ -649,7 +662,7 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
         )
     # so now both partitions 0 and 1 should be considered a stalled
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = """\
 Stuck partitions for cfg1 [id=1, type=snapshot]:
 0:	stuck since today (20 minutes)
@@ -661,7 +674,7 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
 def test_check_running(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     result = invoke(
@@ -679,10 +692,10 @@ def test_check_running(mocker, scrubber_db, swh_storage):
         ],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = "No running partition found for cfg1 [id=1, type=snapshot]\n"
     assert result.output == expected, result.output
 
@@ -692,20 +705,20 @@ def test_check_running(mocker, scrubber_db, swh_storage):
             "INSERT INTO checked_partition VALUES (1, 0, now() - '20m'::interval, NULL);"
         )
     result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = """\
 Running partitions for cfg1 [id=1, type=snapshot]:
 0:	running since today (20 minutes)
 """
     assert result.output == expected, result.output
 
-    # insert another partition started 20mn ago
+    # insert another partition started 2 hours ago
     with scrubber_db.transaction() as cur:
         cur.execute(
             "INSERT INTO checked_partition VALUES (1, 1, now() - '2h'::interval, NULL);"
         )
     result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = """\
 Running partitions for cfg1 [id=1, type=snapshot]:
 0:	running since today (20 minutes)
@@ -713,11 +726,21 @@ Running partitions for cfg1 [id=1, type=snapshot]:
 """
     assert result.output == expected, result.output
 
+    # insert another partition whose scrubbing did not start yet
+    with scrubber_db.transaction() as cur:
+        cur.execute("INSERT INTO checked_partition VALUES (1, 2, NULL, NULL);")
+
+    result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
+
+    # not scrubbed partition should not be displayed
+    assert_result(result)
+    assert result.output == expected, result.output
+
 
 def test_check_stats(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     for otype in ("snapshot", "revision", "release"):
@@ -736,12 +759,12 @@ def test_check_stats(mocker, scrubber_db, swh_storage):
             ],
             storage=swh_storage,
         )
-        assert result.exit_code == 0, result.output
+        assert_result(result)
 
     result = invoke(
         scrubber_db, ["check", "stats", "cfg_snapshot"], storage=swh_storage
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     for otype in ("snapshot", "revision", "release"):
         result = invoke(
@@ -809,7 +832,7 @@ def test_check_stats(mocker, scrubber_db, swh_storage):
     result = invoke(
         scrubber_db, ["check", "stats", "-j", "cfg_snapshot"], storage=swh_storage
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     stats = json.loads(result.output)
     assert stats["config"]["name"] == "cfg_snapshot"
     assert stats["min_duration"] == 600
@@ -822,7 +845,7 @@ def test_check_stats(mocker, scrubber_db, swh_storage):
 def test_check_reset(mocker, scrubber_db, swh_storage):
     mocker.patch("swh.scrubber.get_scrubber_db", return_value=scrubber_db)
     result = invoke(scrubber_db, ["check", "list"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     result = invoke(
@@ -840,10 +863,10 @@ def test_check_reset(mocker, scrubber_db, swh_storage):
         ],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
 
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = "No stuck partition found for cfg1 [id=1, type=snapshot]\n"
     assert result.output == expected, result.output
 
@@ -864,7 +887,7 @@ def test_check_reset(mocker, scrubber_db, swh_storage):
 
     # partitions 0 and 1 are considered as stalled
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = """\
 Stuck partitions for cfg1 [id=1, type=snapshot]:
 0:	stuck since today (20 minutes)
@@ -876,7 +899,7 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
     result = invoke(
         scrubber_db, ["check", "stalled", "--reset", "cfg1"], storage=swh_storage
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     expected = """\
 Stuck partitions for cfg1 [id=1, type=snapshot]:
 0:	stuck since today (20 minutes)
@@ -913,7 +936,7 @@ def test_locate_origins(mocker, scrubber_db, swh_storage, naive_graph_client):
     )
 
     result = invoke(scrubber_db, ["locate"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
@@ -934,7 +957,7 @@ def test_fix_objects(mocker, scrubber_db):
         "swh.scrubber.get_scrubber_db", return_value=scrubber_db
     )
     result = invoke(scrubber_db, ["fix"])
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert result.output == ""
 
     get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
@@ -970,12 +993,12 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         ],
         storage=swh_storage,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = "Created configuration cfg1 [1] for checking snapshot in postgresql storage"
     assert result.output.strip() == msg
 
     result = invoke(scrubber_db, ["check", "storage", "cfg1"], storage=swh_storage)
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert (
         result.output.strip()
         == "DeprecationWarning: The command 'storage' is deprecated."
@@ -994,7 +1017,7 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
     result = invoke(
         scrubber_db, ["check", "storage", "--config-id", "1"], storage=swh_storage
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert (
         result.output.strip()
         == "DeprecationWarning: The command 'storage' is deprecated."
@@ -1028,7 +1051,7 @@ def test_check_journal(
         kafka_prefix=kafka_prefix,
         kafka_consumer_group=kafka_consumer_group,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     msg = "Created configuration cfg1 [1] for checking snapshot in kafka journal"
     assert result.output.strip() == msg
 
@@ -1039,7 +1062,7 @@ def test_check_journal(
         kafka_prefix=kafka_prefix,
         kafka_consumer_group=kafka_consumer_group,
     )
-    assert result.exit_code == 0, result.output
+    assert_result(result)
     assert (
         result.output.strip()
         == "DeprecationWarning: The command 'journal' is deprecated."

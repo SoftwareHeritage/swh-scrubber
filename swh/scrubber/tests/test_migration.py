@@ -14,6 +14,7 @@ from swh.core.db.db_utils import import_swhmodule, swh_db_upgrade, swh_db_versio
 from swh.core.db.tests.test_cli import craft_conninfo
 from swh.model.swhids import ObjectType
 from swh.scrubber.db import ScrubberDb
+from swh.scrubber.tests.test_cli import assert_result
 
 
 @pytest.fixture
@@ -53,6 +54,8 @@ def mock_import_swhmodule(mocker, datadir, current_version):
     """
 
     def import_swhmodule_mock(modname):
+        if ":" in modname:
+            modname = modname.split(":")[0]
         if modname.startswith("test."):
             dirname = modname.split(".", 1)[1]
 
@@ -77,9 +80,9 @@ def test_upgrade_6_to_7(
     module = "test.cli"
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
     result = cli_runner.invoke(swhdb, ["init", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
 
     assert swh_db_version(conninfo) == current_version
 
@@ -171,9 +174,9 @@ def test_upgrade_6_to_7_fails_corrupt(
     module = "test.cli"
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
     result = cli_runner.invoke(swhdb, ["init", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
 
     assert swh_db_version(conninfo) == current_version
 
@@ -201,9 +204,9 @@ def test_upgrade_6_to_7_fails_missing_reference(
     module = "test.cli"
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
     result = cli_runner.invoke(swhdb, ["init", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
 
     assert swh_db_version(conninfo) == current_version
 
@@ -238,9 +241,9 @@ def test_upgrade_6_to_7_fails_missing(
     module = "test.cli"
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
     result = cli_runner.invoke(swhdb, ["init", module, "--dbname", conninfo])
-    assert result.exit_code == 0, f"Unexpected output: {result.output}"
+    assert_result(result)
 
     assert swh_db_version(conninfo) == current_version
 
