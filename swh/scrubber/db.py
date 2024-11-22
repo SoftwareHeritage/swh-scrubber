@@ -304,7 +304,7 @@ class ScrubberDb(BaseDb):
     ) -> Dict[str, Any]:
         """Return statistics for the check configuration <check_id>."""
         config = self.config_get(config_id)
-        stats = {"config": config}
+        stats: Dict[str, Any] = {"config": config}
 
         with self.transaction() as cur:
             cur.execute(
