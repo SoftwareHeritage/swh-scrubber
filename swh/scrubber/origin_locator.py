@@ -11,7 +11,7 @@ import itertools
 import logging
 from typing import Iterable, Union
 
-import psycopg2
+import psycopg
 
 from swh.core.utils import grouper
 from swh.graph.http_client import GraphArgumentException, RemoteGraphClient
@@ -79,7 +79,7 @@ class OriginLocator:
         )
 
     def handle_corrupt_object(
-        self, corrupt_object: CorruptObject, cur: psycopg2.extensions.cursor
+        self, corrupt_object: CorruptObject, cur: psycopg.Cursor
     ) -> None:
         origins = get_origins(self.graph, self.storage, corrupt_object.id)
 

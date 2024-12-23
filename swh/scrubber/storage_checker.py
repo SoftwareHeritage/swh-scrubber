@@ -90,7 +90,7 @@ def get_datastore(storage) -> Datastore:
             datastore = Datastore(
                 package="storage",
                 cls="postgresql",
-                instance=db.conn.dsn,
+                instance=db.conn.info.dsn,
             )
     elif isinstance(storage, CassandraStorage):
         datastore = Datastore(

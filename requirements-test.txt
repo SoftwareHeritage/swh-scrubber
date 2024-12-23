@@ -1,7 +1,8 @@
 msgpack
+msgpack-types
 pytest >= 8.1
 pytest-mock
 pyyaml
 swh.core[testing] >= 3.0.0
 swh.graph
-msgpack-types
+swh.storage[testing]

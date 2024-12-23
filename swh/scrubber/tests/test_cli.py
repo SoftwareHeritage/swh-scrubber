@@ -39,14 +39,14 @@ def invoke(
     runner = CliRunner()
 
     config = {
-        "scrubber": {"cls": "postgresql", "db": scrubber_db.conn.dsn},
+        "scrubber": {"cls": "postgresql", "db": scrubber_db.conn.info.dsn},
         "graph": {"url": "http://graph.example.org:5009/"},
     }
     if storage:
         with postgresql_storage_db(storage) as db:
             config["storage"] = {
                 "cls": "postgresql",
-                "db": db.conn.dsn,
+                "db": db.conn.info.dsn,
                 "objstorage": {"cls": "memory"},
             }
     if objstorage:
@@ -355,7 +355,7 @@ def test_check_run_storage(mocker, scrubber_db, swh_storage):
     assert_result(result)
     assert result.output == ""
 
-    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.info.dsn)
     StorageChecker.assert_called_once_with(
         db=scrubber_db,
         config_id=1,
@@ -413,7 +413,7 @@ def test_check_run_objstorage_partition(
     assert_result(result)
     assert result.output == ""
 
-    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.info.dsn)
     ObjectStorageCheckerFromStoragePartition.assert_called_once_with(
         db=scrubber_db,
         config_id=1,
@@ -485,7 +485,7 @@ def test_check_run_objstorage_journal(
     assert result.output == ""
 
     assert get_scrubber_db.call_count == 2
-    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.info.dsn)
 
     ObjectStorageCheckerFromJournal.assert_called_once_with(
         db=scrubber_db,
@@ -544,7 +544,7 @@ def test_check_run_journal(
     assert result.output == ""
 
     assert get_scrubber_db.call_count == 2
-    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.info.dsn)
 
     JournalChecker.assert_called_once_with(
         db=scrubber_db,
@@ -566,7 +566,7 @@ def test_check_list(mocker, scrubber_db, swh_storage):
     assert_result(result)
     assert result.output == ""
     with swh_storage.db() as db:
-        dsn = db.conn.dsn
+        dsn = db.conn.info.dsn
 
     result = invoke(
         scrubber_db,
@@ -941,7 +941,9 @@ def test_locate_origins(mocker, scrubber_db, swh_storage, naive_graph_client):
     assert_result(result)
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_once_with(
+        cls="postgresql", db=scrubber_db.conn.info.dsn
+    )
     OriginLocator.assert_called_once_with(
         db=scrubber_db,
         storage=OriginLocator.mock_calls[0][2]["storage"],
@@ -962,7 +964,9 @@ def test_fix_objects(mocker, scrubber_db):
     assert_result(result)
     assert result.output == ""
 
-    get_scrubber_db.assert_called_once_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_once_with(
+        cls="postgresql", db=scrubber_db.conn.info.dsn
+    )
     Fixer.assert_called_once_with(
         db=scrubber_db,
         start_object=CoreSWHID.from_string("swh:1:cnt:" + "00" * 20),
@@ -1006,7 +1010,7 @@ def test_check_storage(mocker, scrubber_db, swh_storage):
         == "DeprecationWarning: The command 'storage' is deprecated."
     )
 
-    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.info.dsn)
     StorageChecker.assert_called_once_with(
         db=scrubber_db,
         config_id=1,
@@ -1071,7 +1075,7 @@ def test_check_journal(
     )
 
     assert get_scrubber_db.call_count == 2
-    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.dsn)
+    get_scrubber_db.assert_called_with(cls="postgresql", db=scrubber_db.conn.info.dsn)
 
     JournalChecker.assert_called_once_with(
         db=scrubber_db,

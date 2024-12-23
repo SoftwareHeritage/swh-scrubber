@@ -4,5 +4,5 @@
 
 dulwich
 humanize
-psycopg2
+psycopg
 tenacity

@@ -96,7 +96,7 @@ def scrubber_config(postgresql_scrubber):
 
 @pytest.fixture
 def scrubber_db(scrubber_config):
-    return get_scrubber_db(**scrubber_config)
+    yield get_scrubber_db(**scrubber_config)
 
 
 @pytest.fixture

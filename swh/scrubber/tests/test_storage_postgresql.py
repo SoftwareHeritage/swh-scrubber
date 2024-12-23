@@ -22,5 +22,5 @@ def datastore(swh_storage):
         return Datastore(
             package="storage",
             cls="postgresql",
-            instance=db.conn.dsn,
+            instance=db.conn.info.dsn,
         )
