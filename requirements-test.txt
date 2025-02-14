@@ -4,3 +4,4 @@ pytest-mock
 pyyaml
 swh.core[testing] >= 3.0.0
 swh.graph
+msgpack-types
