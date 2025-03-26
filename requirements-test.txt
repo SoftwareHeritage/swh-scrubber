@@ -6,3 +6,4 @@ pyyaml
 swh.core[testing] >= 3.0.0
 swh.graph
 swh.storage[testing]
+swh.journal[pytest] >= 2.0.0
