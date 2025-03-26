@@ -2,7 +2,6 @@
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
-import os
 from subprocess import CalledProcessError
 
 from click.testing import CliRunner
@@ -10,7 +9,7 @@ import pytest
 
 from swh.core.cli.db import db as swhdb
 from swh.core.db import BaseDb
-from swh.core.db.db_utils import import_swhmodule, swh_db_upgrade, swh_db_version
+from swh.core.db.db_utils import swh_db_upgrade, swh_db_version
 from swh.core.db.tests.test_cli import craft_conninfo
 from swh.model.swhids import ObjectType
 from swh.scrubber.db import ScrubberDb
@@ -22,62 +21,17 @@ def cli_runner():
     return CliRunner()
 
 
-@pytest.fixture()
-def current_version():
-    return 6
-
-
 def test_datadir(datadir):
     assert datadir.endswith("/swh/scrubber/tests/data")
 
 
-@pytest.fixture()
-def mock_import_swhmodule(mocker, datadir, current_version):
-    """This bypasses the module manipulation to make import_swhmodule return a mock
-    object suitable for data test files listing via get_sql_for_package.
-
-    For a given module `test.<mod>`, return a MagicMock object with a __name__
-    set to `<mod>` and __file__ pointing to `data/<mod>/__init__.py`.
-
-    The Mock object also defines a `get_datastore()` attribute on which the
-    `current_version` attribute is set to `current_version`.
-
-    Typical usage::
-
-      def test_xxx(cli_runner, mock_import_swhmodule):
-        conninfo = craft_conninfo(test_db, "new-db")
-        module_name = "test.cli"
-        # the command below will use sql scripts from
-        #     swh/core/db/tests/data/cli/sql/*.sql
-        cli_runner.invoke(swhdb, ["init", module_name, "--dbname", conninfo])
-
-    """
-
-    def import_swhmodule_mock(modname):
-        if ":" in modname:
-            modname = modname.split(":")[0]
-        if modname.startswith("test."):
-            dirname = modname.split(".", 1)[1]
-
-            def get_datastore(*args, **kw):
-                return mocker.MagicMock(current_version=current_version)
-
-            return mocker.MagicMock(
-                __name__=modname,
-                __file__=os.path.join(datadir, dirname, "__init__.py"),
-                get_datastore=get_datastore,
-            )
-        else:
-            return import_swhmodule(modname)
-
-    return mocker.patch("swh.core.db.db_utils.import_swhmodule", import_swhmodule_mock)
-
-
+@pytest.mark.init_version(version=6)
 def test_upgrade_6_to_7(
-    cli_runner, postgresql, mock_import_swhmodule, datadir, current_version
+    request, cli_runner, postgresql, mock_get_entry_points, datadir
 ):
     """Check 6 to 7 migration"""
-    module = "test.cli"
+    module = "test:postgresql"
+    current_version = request.node.get_closest_marker("init_version").kwargs["version"]
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
     assert_result(result)
@@ -161,8 +115,13 @@ def test_upgrade_6_to_7(
         assert len([mor for mor in mo_refs if mor.config == mo.config]) == 1
 
 
+@pytest.mark.init_version(version=6)
 def test_upgrade_6_to_7_fails_corrupt(
-    cli_runner, postgresql, mock_import_swhmodule, datadir, current_version
+    request,
+    cli_runner,
+    postgresql,
+    mock_get_swh_backend_module,
+    datadir,
 ):
     """Check 6 to 7 migration fails
 
@@ -171,7 +130,8 @@ def test_upgrade_6_to_7_fails_corrupt(
 
     """
 
-    module = "test.cli"
+    module = "test"
+    current_version = request.node.get_closest_marker("init_version").kwargs["version"]
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
     assert_result(result)
@@ -193,15 +153,21 @@ def test_upgrade_6_to_7_fails_corrupt(
     assert swh_db_version(conninfo) == 6
 
 
+@pytest.mark.init_version(version=6)
 def test_upgrade_6_to_7_fails_missing_reference(
-    cli_runner, postgresql, mock_import_swhmodule, datadir, current_version
+    request,
+    cli_runner,
+    postgresql,
+    mock_get_swh_backend_module,
+    datadir,
 ):
     """Check 6 to 7 migration fails
 
     in case there is a missing_object_reference row with a datastore that matches 2
     check_configs for the object (reference_id) type.
     """
-    module = "test.cli"
+    module = "test"
+    current_version = request.node.get_closest_marker("init_version").kwargs["version"]
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
     assert_result(result)
@@ -229,8 +195,9 @@ def test_upgrade_6_to_7_fails_missing_reference(
     assert swh_db_version(conninfo) == 6
 
 
+@pytest.mark.init_version(version=6)
 def test_upgrade_6_to_7_fails_missing(
-    cli_runner, postgresql, mock_import_swhmodule, datadir, current_version
+    request, cli_runner, postgresql, mock_get_swh_backend_module, datadir
 ):
     """Check 6 to 7 migration fails
 
@@ -238,7 +205,8 @@ def test_upgrade_6_to_7_fails_missing(
     check_configs for the object type.
     """
 
-    module = "test.cli"
+    module = "test"
+    current_version = request.node.get_closest_marker("init_version").kwargs["version"]
     conninfo = craft_conninfo(postgresql)
     result = cli_runner.invoke(swhdb, ["init-admin", module, "--dbname", conninfo])
     assert_result(result)

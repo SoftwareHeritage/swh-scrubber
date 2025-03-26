@@ -20,7 +20,7 @@ from typing import Dict, Optional, Type, Union
 import dulwich
 import dulwich.objects
 import dulwich.repo
-import psycopg2
+import psycopg
 
 from swh.journal.serializers import kafka_to_value, value_to_kafka
 from swh.loader.git import converters
@@ -196,7 +196,7 @@ class Fixer:
     def recover_corrupt_object(
         self,
         corrupt_object: CorruptObject,
-        cur: psycopg2.extensions.cursor,
+        cur: psycopg.Cursor,
         clone_path: Path,
     ) -> None:
         fixed_object = get_fixed_object_from_clone(clone_path, corrupt_object)

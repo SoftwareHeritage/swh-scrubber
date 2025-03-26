@@ -325,7 +325,7 @@ def scrubber_check_stalled(
         for partition, stuck_since in in_flight:
             click.echo(
                 f"{partition}:\tstuck since {naturaldate(stuck_since)} "
-                f"({naturaldelta(now-stuck_since)})"
+                f"({naturaldelta(now - stuck_since)})"
             )
             if reset:
                 if db.checked_partition_reset(config_id, partition):
@@ -378,7 +378,7 @@ def scrubber_check_running(ctx, name: str, config_id: int):
         for partition, running_since in in_flight:
             click.echo(
                 f"{partition}:\trunning since {naturaldate(running_since)} "
-                f"({naturaldelta(now-running_since)})"
+                f"({naturaldelta(now - running_since)})"
             )
     else:
         click.echo(

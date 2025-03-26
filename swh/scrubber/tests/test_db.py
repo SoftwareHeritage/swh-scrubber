@@ -6,7 +6,7 @@
 import datetime
 from unittest.mock import patch
 
-from psycopg2.errors import UniqueViolation
+from psycopg.errors import UniqueViolation
 import pytest
 
 from swh.model.swhids import ObjectType

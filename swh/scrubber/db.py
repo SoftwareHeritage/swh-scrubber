@@ -1,15 +1,14 @@
-# Copyright (C) 2022-2023  The Software Heritage developers
+# Copyright (C) 2022-2024  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
-
 
 import dataclasses
 import datetime
 import functools
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
-import psycopg2
+import psycopg
 
 from swh.core.db import BaseDb
 from swh.model.swhids import CoreSWHID, ObjectType
@@ -77,6 +76,13 @@ class FixedObject:
 
 class ScrubberDb(BaseDb):
     current_version = 7
+
+    def __init__(self, db, **kwargs):
+        if isinstance(db, str):
+            conn = psycopg.connect(db, **kwargs)
+        else:
+            conn = db
+        super().__init__(conn=conn)
 
     ####################################
     # Shared tables
@@ -298,7 +304,7 @@ class ScrubberDb(BaseDb):
     ) -> Dict[str, Any]:
         """Return statistics for the check configuration <check_id>."""
         config = self.config_get(config_id)
-        stats = {"config": config}
+        stats: Dict[str, Any] = {"config": config}
 
         with self.transaction() as cur:
             cur.execute(
@@ -618,7 +624,7 @@ class ScrubberDb(BaseDb):
             )
 
     def _corrupt_object_list_from_cursor(
-        self, cur: psycopg2.extensions.cursor
+        self, cur: psycopg.Cursor
     ) -> Iterator[CorruptObject]:
         for row in cur:
             (
@@ -704,7 +710,7 @@ class ScrubberDb(BaseDb):
 
     def corrupt_object_grab_by_id(
         self,
-        cur: psycopg2.extensions.cursor,
+        cur: psycopg.Cursor,
         start_id: CoreSWHID,
         end_id: CoreSWHID,
         limit: int = 100,
@@ -748,7 +754,7 @@ class ScrubberDb(BaseDb):
 
     def corrupt_object_grab_by_origin(
         self,
-        cur: psycopg2.extensions.cursor,
+        cur: psycopg.Cursor,
         origin_url: str,
         start_id: Optional[CoreSWHID] = None,
         end_id: Optional[CoreSWHID] = None,
@@ -825,8 +831,7 @@ class ScrubberDb(BaseDb):
                 (str(id), config_id),
             )
             if reference_ids:
-                psycopg2.extras.execute_batch(
-                    cur,
+                cur.executemany(
                     """
                     INSERT INTO missing_object_reference (missing_id, reference_id, config_id)
                     VALUES (%s, %s, %s)
@@ -936,13 +941,12 @@ class ScrubberDb(BaseDb):
     ####################################
 
     def object_origin_add(
-        self, cur: psycopg2.extensions.cursor, swhid: CoreSWHID, origins: List[str]
+        self, cur: psycopg.Cursor, swhid: CoreSWHID, origins: List[str]
     ) -> None:
-        psycopg2.extras.execute_values(
-            cur,
+        cur.executemany(
             """
             INSERT INTO object_origin (object_id, origin_url)
-            VALUES %s
+            VALUES (%s, %s)
             ON CONFLICT DO NOTHING
             """,
             [(str(swhid), origin_url) for origin_url in origins],
@@ -974,13 +978,12 @@ class ScrubberDb(BaseDb):
             return [origin_url for (origin_url,) in cur]
 
     def fixed_object_add(
-        self, cur: psycopg2.extensions.cursor, fixed_objects: List[FixedObject]
+        self, cur: psycopg.Cursor, fixed_objects: List[FixedObject]
     ) -> None:
-        psycopg2.extras.execute_values(
-            cur,
+        cur.executemany(
             """
             INSERT INTO fixed_object (id, object, method)
-            VALUES %s
+            VALUES (%s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
             [

@@ -5,7 +5,7 @@
 
 from typing import Callable, Optional
 
-import psycopg2
+import psycopg
 
 from swh.model.swhids import CoreSWHID
 
@@ -17,14 +17,14 @@ def iter_corrupt_objects(
     start_object: CoreSWHID,
     end_object: CoreSWHID,
     origin_url: Optional[str],
-    cb: Callable[[CorruptObject, psycopg2.extensions.cursor], None],
+    cb: Callable[[CorruptObject, psycopg.Cursor], None],
 ) -> None:
     """Fetches objects and calls ``cb`` on each of them.
 
     objects are fetched with an update lock, with the same transaction as ``cb``,
     which is automatically committed after ``cb`` runs."""
     while True:
-        with db.conn, db.cursor() as cur:
+        with db.cursor() as cur:
             if origin_url:
                 corrupt_objects = list(
                     db.corrupt_object_grab_by_origin(

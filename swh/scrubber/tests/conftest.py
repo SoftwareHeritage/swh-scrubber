@@ -17,10 +17,17 @@ from swh.model.hashutil import hash_to_bytes
 from swh.model.model import Directory, DirectoryEntry
 from swh.model.swhids import ObjectType
 from swh.model.tests.swh_model_data import DIRECTORIES
+from swh.scrubber import get_scrubber_db
 from swh.scrubber.db import ConfigEntry, CorruptObject, Datastore, ScrubberDb
 
 scrubber_postgresql_proc = factories.postgresql_proc(
-    load=[partial(initialize_database_for_module, modname="scrubber", version=6)],
+    load=[
+        partial(
+            initialize_database_for_module,
+            modname="scrubber",
+            version=ScrubberDb.current_version,
+        )
+    ],
 )
 
 postgresql_scrubber = factories.postgresql("scrubber_postgresql_proc")
@@ -83,12 +90,13 @@ def datastore():
 
 
 @pytest.fixture
-def scrubber_db(postgresql_scrubber):
-    db = ScrubberDb.connect(postgresql_scrubber.info.dsn)
-    with db.conn.cursor() as cur:
-        cur.execute("TRUNCATE TABLE corrupt_object")
-        cur.execute("TRUNCATE TABLE datastore CASCADE")
-    return db
+def scrubber_config(postgresql_scrubber):
+    return {"cls": "postgresql", "db": postgresql_scrubber.info.dsn}
+
+
+@pytest.fixture
+def scrubber_db(scrubber_config):
+    yield get_scrubber_db(**scrubber_config)
 
 
 @pytest.fixture

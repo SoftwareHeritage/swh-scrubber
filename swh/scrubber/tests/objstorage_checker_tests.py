@@ -60,7 +60,7 @@ def test_objstorage_checker_partition_no_corruption(
     swh_storage, swh_objstorage, objstorage_checker_partition
 ):
     swh_storage.content_add(swh_model_data.CONTENTS)
-    swh_objstorage.add_batch({c.sha1: c.data for c in swh_model_data.CONTENTS})
+    swh_objstorage.add_batch((c.hashes(), c.data) for c in swh_model_data.CONTENTS)
 
     objstorage_checker_partition.run()
 
@@ -81,7 +81,7 @@ def test_objstorage_checker_partition_missing_content(
     contents = list(swh_model_data.CONTENTS)
     swh_storage.content_add(contents)
     swh_objstorage.add_batch(
-        {c.sha1: c.data for i, c in enumerate(contents) if i != missing_idx}
+        (c.hashes(), c.data) for i, c in enumerate(contents) if i != missing_idx
     )
 
     before_date = datetime.now(tz=timezone.utc)
@@ -116,7 +116,7 @@ def test_objstorage_checker_partition_corrupt_content(
     contents = list(swh_model_data.CONTENTS)
     contents[corrupt_idx] = attr.evolve(contents[corrupt_idx], sha1_git=b"\x00" * 20)
     swh_storage.content_add(contents)
-    swh_objstorage.add_batch({c.sha1: c.data for c in contents})
+    swh_objstorage.add_batch((c.hashes(), c.data) for c in contents)
 
     before_date = datetime.now(tz=timezone.utc)
     objstorage_checker_partition.run()
@@ -163,7 +163,7 @@ def test_objstorage_checker_journal_contents_no_corruption(
     journal_client_config["group_id"] = gid + object_type
 
     objstorage_checker_journal.objstorage.add_batch(
-        {c.sha1: c.data for c in swh_model_data.CONTENTS}
+        (c.hashes(), c.data) for c in swh_model_data.CONTENTS
     )
     objstorage_checker_journal.run()
     objstorage_checker_journal.journal_client.close()
@@ -186,7 +186,9 @@ def test_objstorage_checker_journal_corrupt_content(
 
     before_date = datetime.now(tz=timezone.utc)
 
-    objstorage_checker_journal.objstorage.add_batch({c.sha1: c.data for c in contents})
+    objstorage_checker_journal.objstorage.add_batch(
+        (c.hashes(), c.data) for c in contents
+    )
     objstorage_checker_journal.run()
     after_date = datetime.now(tz=timezone.utc)
 
@@ -224,7 +226,7 @@ def test_objstorage_checker_journal_missing_content(
     before_date = datetime.now(tz=timezone.utc)
 
     objstorage_checker_journal.objstorage.add_batch(
-        {c.sha1: c.data for i, c in enumerate(contents) if i != missing_idx}
+        (c.hashes(), c.data) for i, c in enumerate(contents) if i != missing_idx
     )
     objstorage_checker_journal.run()
     after_date = datetime.now(tz=timezone.utc)

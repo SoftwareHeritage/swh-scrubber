@@ -8,7 +8,7 @@ from itertools import count, islice
 import logging
 from typing import Any, Dict, Iterable, Optional
 
-import psycopg2
+import psycopg
 import tenacity
 
 from swh.core.statsd import Statsd
@@ -125,7 +125,7 @@ class BasePartitionChecker(BaseChecker):
             )
 
     @tenacity.retry(
-        retry=tenacity.retry_if_exception_type(psycopg2.OperationalError),
+        retry=tenacity.retry_if_exception_type(psycopg.OperationalError),
         wait=tenacity.wait_random_exponential(min=10, max=180),
     )
     def _check_partition(

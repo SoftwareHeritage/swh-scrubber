@@ -1,4 +1,4 @@
-# Copyright (C) 2022  The Software Heritage developers
+# Copyright (C) 2022-2024  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -12,14 +12,11 @@ if TYPE_CHECKING:
 
 
 def get_scrubber_db(cls: str, **kwargs) -> ScrubberDb:
-    if cls not in ("local", "postgresql"):
-        raise ValueError(
-            f"Unknown scrubber db class '{cls}', use 'postgresql' instead."
-        )
+    from swh.core.config import get_swh_backend_module
 
-    from swh.scrubber.db import ScrubberDb
-
-    return ScrubberDb.connect(kwargs.pop("db"), **kwargs)
+    _, BackendCls = get_swh_backend_module("scrubber", cls)
+    assert BackendCls is not None
+    return BackendCls(**kwargs)
 
 
 get_datastore = get_scrubber_db
