@@ -88,7 +88,7 @@ ignore = [
     "E704", # multiple statements on one line (def)
 ]
 max-line-length = 88
-exclude = ["build/", ".tox/"]
+extend-exclude = ["build/"]
 
 [tool.pytest.ini_options]
 norecursedirs = "build docs .*"
