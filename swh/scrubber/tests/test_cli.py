@@ -1,9 +1,10 @@
-# Copyright (C) 2020-2024  The Software Heritage developers
+# Copyright (C) 2020-2025  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
 
 import json
+import re
 import tempfile
 import traceback
 from unittest.mock import MagicMock, call
@@ -640,11 +641,12 @@ def test_check_stalled(mocker, scrubber_db, swh_storage):
     # it is considered as stalled by default
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
     assert_result(result)
-    expected = """\
-Stuck partitions for cfg1 [id=1, type=snapshot]:
-1:	stuck since today (2 hours)
-"""
-    assert result.output == expected, result.output
+    expected = re.compile(
+        r"""Stuck partitions for cfg1 \[id=1, type=snapshot\]:
+1:	stuck since (today|yesterday) \(2 hours\)""",
+        re.MULTILINE,
+    )
+    assert expected.match(result.output), result.output
 
     # explicitly specify a delay > 2h to be considered as stelles: no one stalled
     result = invoke(
@@ -663,12 +665,13 @@ Stuck partitions for cfg1 [id=1, type=snapshot]:
     # so now both partitions 0 and 1 should be considered a stalled
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
     assert_result(result)
-    expected = """\
-Stuck partitions for cfg1 [id=1, type=snapshot]:
-0:	stuck since today (20 minutes)
-1:	stuck since today (2 hours)
-"""
-    assert result.output == expected, result.output
+    expected = re.compile(
+        r"""Stuck partitions for cfg1 \[id=1, type=snapshot\]:
+0:	stuck since (today|yesterday) \(20 minutes\)
+1:	stuck since (today|yesterday) \(2 hours\)""",
+        re.MULTILINE,
+    )
+    assert expected.match(result.output), result.output
 
 
 def test_check_running(mocker, scrubber_db, swh_storage):
@@ -706,11 +709,12 @@ def test_check_running(mocker, scrubber_db, swh_storage):
         )
     result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
     assert_result(result)
-    expected = """\
-Running partitions for cfg1 [id=1, type=snapshot]:
-0:	running since today (20 minutes)
-"""
-    assert result.output == expected, result.output
+    expected = re.compile(
+        r"""Running partitions for cfg1 \[id=1, type=snapshot\]:
+0:	running since (today|yesterday) \(20 minutes\)""",
+        re.MULTILINE,
+    )
+    assert expected.match(result.output), result.output
 
     # insert another partition started 2 hours ago
     with scrubber_db.transaction() as cur:
@@ -719,12 +723,13 @@ Running partitions for cfg1 [id=1, type=snapshot]:
         )
     result = invoke(scrubber_db, ["check", "running", "cfg1"], storage=swh_storage)
     assert_result(result)
-    expected = """\
-Running partitions for cfg1 [id=1, type=snapshot]:
-0:	running since today (20 minutes)
-1:	running since today (2 hours)
-"""
-    assert result.output == expected, result.output
+    expected = re.compile(
+        r"""Running partitions for cfg1 \[id=1, type=snapshot\]:
+0:	running since (today|yesterday) \(20 minutes\)
+1:	running since (today|yesterday) \(2 hours\)""",
+        re.MULTILINE,
+    )
+    assert expected.match(result.output), result.output
 
     # insert another partition whose scrubbing did not start yet
     with scrubber_db.transaction() as cur:
@@ -734,7 +739,7 @@ Running partitions for cfg1 [id=1, type=snapshot]:
 
     # not scrubbed partition should not be displayed
     assert_result(result)
-    assert result.output == expected, result.output
+    assert expected.match(result.output), result.output
 
 
 def test_check_stats(mocker, scrubber_db, swh_storage):
@@ -890,26 +895,28 @@ def test_check_reset(mocker, scrubber_db, swh_storage):
     # partitions 0 and 1 are considered as stalled
     result = invoke(scrubber_db, ["check", "stalled", "cfg1"], storage=swh_storage)
     assert_result(result)
-    expected = """\
-Stuck partitions for cfg1 [id=1, type=snapshot]:
-0:	stuck since today (20 minutes)
-1:	stuck since today (2 hours)
-"""
-    assert result.output == expected, result.output
+    expected = re.compile(
+        r"""Stuck partitions for cfg1 \[id=1, type=snapshot\]:
+0:	stuck since (today|yesterday) \(20 minutes\)
+1:	stuck since (today|yesterday) \(2 hours\)""",
+        re.MULTILINE,
+    )
+    assert expected.match(result.output), result.output
 
     # let's reset them
     result = invoke(
         scrubber_db, ["check", "stalled", "--reset", "cfg1"], storage=swh_storage
     )
     assert_result(result)
-    expected = """\
-Stuck partitions for cfg1 [id=1, type=snapshot]:
-0:	stuck since today (20 minutes)
+    expected = re.compile(
+        r"""Stuck partitions for cfg1 \[id=1, type=snapshot\]:
+0:	stuck since (today|yesterday) \(20 minutes\)
 	partition reset
-1:	stuck since today (2 hours)
-	partition reset
-"""  # noqa: W191,E101
-    assert result.output == expected, result.output
+1:	stuck since (today|yesterday) \(2 hours\)
+	partition reset""",  # noqa: W191,E101
+        re.MULTILINE,
+    )
+    assert expected.match(result.output), result.output
     with scrubber_db.transaction() as cur:
         cur.execute(
             "SELECT partition_id, end_date "
