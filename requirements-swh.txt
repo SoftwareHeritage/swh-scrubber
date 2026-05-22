@@ -3,5 +3,5 @@ swh.core[http] >= 4.0.0
 swh.loader.git >= 1.4.0
 swh.model >= 6.13.0
 swh.storage >= 3.0.0
-swh.journal >= 1.3.0
+swh.journal@git+https://gitlab.softwareheritage.org/swh/devel/swh-journal.git@refs/merge-requests/284/head
 swh.objstorage >= 2.9.2
