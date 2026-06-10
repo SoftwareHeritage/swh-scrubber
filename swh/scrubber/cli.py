@@ -1,4 +1,4 @@
-# Copyright (C) 2022-2024  The Software Heritage developers
+# Copyright (C) 2022-2026  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -428,9 +428,7 @@ def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
         click.echo(dumps(stats, indent=2))
     else:
         percentage = stats["checked_partition"] / nb_partitions * 100.0
-        click.echo(
-            textwrap.dedent(
-                f"""\
+        click.echo(textwrap.dedent(f"""\
                 Check session {name} ({config_id}):
                   object type: {cfg.object_type.name}
                   datastore: {cfg.datastore.instance}
@@ -439,20 +437,13 @@ def scrubber_check_stats(ctx, name: str, config_id: int, json_format: bool):
                   partitions:
                     total: {nb_partitions}
                     running: {stats['running_partition']}
-                    done: {stats['checked_partition']} ({percentage:.2f}%)"""
-            )
-        )
+                    done: {stats['checked_partition']} ({percentage:.2f}%)"""))
         if stats["checked_partition"]:
-            click.echo(
-                "  "
-                + textwrap.dedent(
-                    f"""\
+            click.echo("  " + textwrap.dedent(f"""\
                     duration:
                         min: {naturaldelta(stats['min_duration'])}
                         avg: {naturaldelta(stats['avg_duration'])}
-                        max: {naturaldelta(stats['max_duration'])}"""
-                )
-            )
+                        max: {naturaldelta(stats['max_duration'])}"""))
         if cfg.check_hashes:
             click.echo(f"  corrupted objects: {stats['corrupt_object']}")
         if cfg.check_references:

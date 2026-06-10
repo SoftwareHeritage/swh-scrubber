@@ -1,4 +1,4 @@
-# Copyright (C) 2022-2024  The Software Heritage developers
+# Copyright (C) 2022-2026  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -135,7 +135,7 @@ class ScrubberDb(BaseDb):
             res = cur.fetchone()
             if res is None:
                 raise ValueError(f"No datastore with id {datastore_id}")
-            (package, cls, instance) = res
+            package, cls, instance = res
             return Datastore(package=package, cls=cls, instance=instance)
 
     def config_add(
@@ -659,8 +659,7 @@ class ScrubberDb(BaseDb):
     def corrupt_object_iter(self) -> Iterator[CorruptObject]:
         """Yields all records in the 'corrupt_object' table."""
         with self.transaction() as cur:
-            cur.execute(
-                """
+            cur.execute("""
                 SELECT
                     co.id, co.first_occurrence, co.object,
                     cc.object_type, cc.nb_partitions, cc.name,
@@ -669,8 +668,7 @@ class ScrubberDb(BaseDb):
                 FROM corrupt_object AS co
                 INNER JOIN check_config AS cc ON (cc.id=co.config_id)
                 INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
-                """
-            )
+                """)
             yield from self._corrupt_object_list_from_cursor(cur)
 
     def corrupt_object_get(
@@ -846,8 +844,7 @@ class ScrubberDb(BaseDb):
     def missing_object_iter(self) -> Iterator[MissingObject]:
         """Yields all records in the 'missing_object' table."""
         with self.transaction() as cur:
-            cur.execute(
-                """
+            cur.execute("""
                 SELECT
                     mo.id, mo.first_occurrence,
                     cc.name, cc.object_type, cc.nb_partitions,
@@ -856,8 +853,7 @@ class ScrubberDb(BaseDb):
                 FROM missing_object AS mo
                 INNER JOIN check_config AS cc ON (cc.id=mo.config_id)
                 INNER JOIN datastore AS ds ON (ds.id=cc.datastore)
-                """
-            )
+                """)
 
             for row in cur:
                 (

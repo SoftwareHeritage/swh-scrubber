@@ -1,4 +1,4 @@
-# Copyright (C) 2022  The Software Heritage developers
+# Copyright (C) 2022-2026  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -158,7 +158,7 @@ def test_empty_origin(
     real_subprocess_run = subprocess.run
 
     def subprocess_run(args, **kwargs):
-        (*head, path) = args
+        *head, path = args
         assert head == ["git", "clone", "--bare", "http://example.org/"]
         real_subprocess_run(["git", "init", "--bare", path])
 
@@ -191,7 +191,7 @@ def test_parseable_directory_from_origin(
     real_subprocess_run = subprocess.run
 
     def subprocess_run(args, **kwargs):
-        (*head, path) = args
+        *head, path = args
         assert head == ["git", "clone", "--bare", "http://example.org/"]
         real_subprocess_run(["git", "init", "--bare", path])
         object_dir_path = Path(path) / "objects/61"
@@ -257,7 +257,7 @@ def test_unparseable_directory(
     )
 
     def subprocess_run(args, **kwargs):
-        (*head, path) = args
+        *head, path = args
         if head[0:2] != ["git", "clone"]:
             return real_subprocess_run(args, **kwargs)
         assert head == ["git", "clone", "--bare", "http://example.org/"]
