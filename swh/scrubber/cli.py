@@ -11,7 +11,6 @@ import click
 
 from swh.core.cli import CONTEXT_SETTINGS
 from swh.core.cli import swh as swh_cli_group
-from swh.model.swhids import ObjectType
 
 
 def _fix_sphinx_docstring():
@@ -222,6 +221,8 @@ def scrubber_check_init(
         raise click.ClickException(f"Configuration {name} already exists")
 
     assert check_references is not None
+
+    from swh.model.swhids import ObjectType
 
     config_id = db.config_add(
         name,
