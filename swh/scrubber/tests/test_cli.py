@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2025  The Software Heritage developers
+# Copyright (C) 2020-2026  The Software Heritage developers
 # See the AUTHORS file at the top-level directory of this distribution
 # License: GNU General Public License version 3, or any later version
 # See top-level LICENSE file for more information
@@ -70,8 +70,12 @@ def invoke(
     with tempfile.NamedTemporaryFile("a", suffix=".yml") as config_fd:
         yaml.dump(config, config_fd)
         config_fd.seek(0)
-        args = ["-C" + config_fd.name] + list(args)
-        result = runner.invoke(scrubber_cli_group, args, catch_exceptions=False)
+        result = runner.invoke(
+            scrubber_cli_group,
+            args,
+            catch_exceptions=False,
+            env={"SWH_CONFIG_FILENAME": config_fd.name},
+        )
     return result
 
 

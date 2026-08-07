@@ -9,7 +9,7 @@ import warnings
 
 import click
 
-from swh.core.cli import CONTEXT_SETTINGS
+from swh.core.cli import CONTEXT_SETTINGS, setup_config
 from swh.core.cli import swh as swh_cli_group
 
 
@@ -33,6 +33,7 @@ def _fix_sphinx_docstring():
         exists=True,
         dir_okay=False,
     ),
+    deprecated=True,
     help="Configuration file.",
 )
 @click.pass_context
@@ -75,22 +76,12 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
             object_types: [directory, revision, snapshot, release]
             auto_offset_reset: earliest
     """
-    from swh.core import config
 
     from . import get_scrubber_db
 
-    if not config_file:
-        config_file = os.environ.get("SWH_CONFIG_FILENAME")
+    setup_config(ctx, config_file)
+    conf = ctx.obj["config"]
 
-    if config_file:
-        if not os.path.exists(config_file):
-            raise ValueError("%s does not exist" % config_file)
-        conf = config.read(config_file)
-    else:
-        conf = {}
-
-    ctx.ensure_object(dict)
-    ctx.obj["config"] = conf
     if "scrubber_db" in conf:
         warnings.warn(
             "the 'scrubber_db' configuration section has been renamed to 'scrubber'; "
