@@ -57,7 +57,7 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
                 cls: memory
         \b
         # for journal checkers only:
-        journal:
+        journal_client:
             # see https://docs.softwareheritage.org/devel/apidoc/swh.journal.client.html
             # for the full list of options
             sasl.mechanism: SCRAM-SHA-512
@@ -89,6 +89,17 @@ def scrubber_cli_group(ctx, config_file: Optional[str]) -> None:
             DeprecationWarning,
         )
         conf["scrubber"] = conf.pop("scrubber_db")
+
+    if "journal" in conf:
+        warnings.warn(
+            "The 'journal' config section has been renamed as 'journal_client'. "
+            "Please update your configuration file.",
+            DeprecationWarning,
+        )
+        if "journal_client" in conf:
+            ctx.fail("Duplicate configuration between journal and journal_client")
+
+        conf["journal_client"] = conf.pop("journal")
 
     if "scrubber" in conf:
         ctx.obj["db"] = get_scrubber_db(**conf["scrubber"])
@@ -180,13 +191,13 @@ def scrubber_check_init(
     elif backend == "journal":
         if check_references is None:
             check_references = False
-        if "journal" not in conf:
+        if "journal_client" not in conf:
             raise click.ClickException(
-                "You must have a journal configured in your config file."
+                "You must have a journal_client configured in your config file."
             )
         from .journal_checker import get_datastore as get_journal_datastore
 
-        datastore = get_journal_datastore(journal_cfg=conf["journal"])
+        datastore = get_journal_datastore(journal_cfg=conf["journal_client"])
         db.datastore_get_or_add(datastore)
         nb_partitions = 1
     elif backend == "objstorage":
@@ -520,8 +531,8 @@ def scrubber_check_run(
     elif datastore.package == "objstorage":
         if not use_journal and "storage" not in conf:
             ctx.fail("You must have a storage configured in your config file.")
-        if use_journal and "journal" not in conf:
-            ctx.fail("You must have a journal configured in your config file.")
+        if use_journal and "journal_client" not in conf:
+            ctx.fail("You must have a journal_client configured in your config file.")
         if "objstorage" not in conf:
             ctx.fail("You must have an object storage configured in your config file.")
         from swh.objstorage.factory import get_objstorage
@@ -531,7 +542,7 @@ def scrubber_check_run(
 
             checker = ObjectStorageCheckerFromJournal(
                 db=db,
-                journal_client_config=conf["journal"],
+                journal_client_config=conf["journal_client"],
                 objstorage=get_objstorage(**conf["objstorage"]),
                 config_id=config_id,
             )
@@ -548,13 +559,13 @@ def scrubber_check_run(
                 limit=limit,
             )
     elif datastore.package == "journal":
-        if "journal" not in conf:
-            ctx.fail("You must have a journal configured in your config file.")
+        if "journal_client" not in conf:
+            ctx.fail("You must have a journal_client configured in your config file.")
         from .journal_checker import JournalChecker
 
         checker = JournalChecker(
             db=db,
-            journal_client_config=conf["journal"],
+            journal_client_config=conf["journal_client"],
             config_id=config_id,
         )
     else:
@@ -654,14 +665,14 @@ def scrubber_check_journal(ctx, name, config_id) -> None:
     conf = ctx.obj["config"]
     if "db" not in ctx.obj:
         ctx.fail("You must have a scrubber configured in your config file.")
-    if "journal" not in conf:
-        ctx.fail("You must have a journal configured in your config file.")
+    if "journal_client" not in conf:
+        ctx.fail("You must have a journal_client configured in your config file.")
     db = ctx.obj["db"]
 
     if name and config_id is None:
         from .journal_checker import get_datastore as get_journal_datastore
 
-        cfg = conf["journal"]
+        cfg = conf["journal_client"]
         datastore = get_journal_datastore(journal_cfg=cfg)
         datastore_id = db.datastore_get_or_add(datastore)
         config_id = db.config_get_by_name(name, datastore_id)
@@ -675,7 +686,7 @@ def scrubber_check_journal(ctx, name, config_id) -> None:
 
     checker = JournalChecker(
         db=ctx.obj["db"],
-        journal_client_config=conf["journal"],
+        journal_client_config=conf["journal_client"],
         config_id=config_id,
     )
 

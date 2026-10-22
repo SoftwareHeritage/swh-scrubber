@@ -59,7 +59,7 @@ def invoke(
         == (kafka_consumer_group is None)
     )
     if kafka_server:
-        config["journal"] = dict(
+        config["journal_client"] = dict(
             cls="kafka",
             brokers=kafka_server,
             group_id=kafka_consumer_group,

@@ -112,7 +112,7 @@ A new configuration is created using the ``swh scrubber check init`` tool:
         objstorage:
           cls: noop
 
-      journal:
+      journal_client:
          cls: kafka
          brokers:
             - broker1.journal.softwareheritage.org:9093
@@ -179,7 +179,7 @@ A new configuration is created using the ``swh scrubber check init`` tool:
         cls: postgresql
         db: postgresql://localhost/postgres?host=/tmp/tmpk9b4wkb5&port=9824
 
-      journal:
+      journal_client:
          cls: kafka
          brokers:
             - broker1.journal.softwareheritage.org:9093
